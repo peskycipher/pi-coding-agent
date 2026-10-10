@@ -40,6 +40,8 @@ export class PiSandbox extends CodingAgentSandbox {
         // egress boundary. PI_OFFLINE stays unset: it would suppress the catalog refresh that
         // resolves the model ID.
         OLLAMA_API_KEY: "provided-by-worker",
+        // Reaches TypeSafe's Jev classifier through codemode, never as a chat model.
+        TYPESAFE_API_KEY: "provided-by-worker",
         PI_SKIP_VERSION_CHECK: "1",
         PI_TELEMETRY: "0",
       },

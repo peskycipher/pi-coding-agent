@@ -9,7 +9,7 @@
     "MODEL": "deepseek-v4.1-flash"
   },
   "secrets": {
-    "required": ["OLLAMA_API_KEY"]
+    "required": ["OLLAMA_API_KEY", "TYPESAFE_API_KEY"]
   },
   "routes": [
     {

@@ -31,6 +31,7 @@ printf '%s\\n' "$?" >${EXIT_CODE_PATH}.tmp && mv ${EXIT_CODE_PATH}.tmp ${EXIT_CO
 export interface CodingAgentEnv {
   SANDBOX: DurableObjectNamespace<CodingAgentSandbox>;
   OLLAMA_API_KEY: string;
+  TYPESAFE_API_KEY: string;
   MODEL: string;
   GITHUB_TOKEN?: string;
 }

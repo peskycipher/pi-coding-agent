@@ -23,19 +23,42 @@ Ported from `cloudflare/sandbox-sdk` `examples/coding-agents/pi`, with two chang
 ## Network access
 
 The container has no internet access. An `Outbound` entrypoint in the Worker receives every HTTP
-and HTTPS request from it and allows exactly two hosts:
+and HTTPS request from it and allows exactly three hosts:
 
 - `ollama.com` — the Worker adds `OLLAMA_API_KEY` (a Worker secret), so the container never holds
   the account key.
+- `api.typesafe.ai` — the Worker adds `TYPESAFE_API_KEY`, for TypeSafe's Jev classifier.
 - `github.com` — the Worker adds `GITHUB_TOKEN` when it is set.
 
 Every other host gets `403`.
+
+## Classifiers
+
+The image enables `codemode` in `/root/.pi/agent/settings.json`, because classifier models are
+reachable only through it — they never appear in `/model`. The agent gets TypeSafe's `jev-latest`
+with:
+
+```js
+const jev = await models.getModelOfType("classifier", "typesafe", "jev-latest");
+const result = await models.classify(jev, {
+  state: { message: "The change works, thanks." },
+  questions: {
+    approved: {
+      type: "bool",
+      instructions: "Does the user approve of the result?",
+      criteria: { true: "Approval", false: "No approval" },
+    },
+  },
+});
+return result.answers;
+```
 
 ## Deploy
 
 ```sh
 npm install
-npx wrangler secret put OLLAMA_API_KEY   # the Ollama Cloud account key
+npx wrangler secret put OLLAMA_API_KEY     # the Ollama Cloud account key
+npx wrangler secret put TYPESAFE_API_KEY   # the TypeSafe account key
 npm run deploy
 ```
 
