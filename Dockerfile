@@ -14,5 +14,8 @@ RUN pi install npm:pi-ollama-cloud-link \
 # Classifiers are reachable only through codemode, which pi registers inactive by default.
 RUN node -e "const fs=require('fs');const p='/root/.pi/agent/settings.json';const s=JSON.parse(fs.readFileSync(p,'utf8'));s.defaultTools=['+codemode'];fs.writeFileSync(p,JSON.stringify(s,null,2)+'\n')"
 COPY --from=sandbox-tools /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
+# Post-send pruning, matching the operator's host setup. The other JEV_LENS_* values the host sets
+# are already the library defaults, so only the mode is mirrored.
+ENV JEV_LENS_MODE=budget
 WORKDIR /workspace
 CMD ["sleep", "infinity"]

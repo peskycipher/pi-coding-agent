@@ -93,11 +93,21 @@ export abstract class CodingAgentSandbox extends DurableObject<CodingAgentEnv> {
   ): Promise<CommandResult> {
     await this.#ensureExecution(sandboxName);
     const branch = ref === undefined ? [] : ["--branch", ref];
-    return this.#run(
+    const clone = await this.#run(
       ["git", "clone", "--depth", "1", ...branch, "--", repository, REPOSITORY_DIRECTORY],
       "/workspace",
       TRUST_ENV,
     );
+    // jev-lens logs its decisions to <project>/.pi/jev-lens.log inside the repo; readDiff's
+    // intent-to-add would put that untracked file in every returned diff.
+    if (clone.exitCode === 0) {
+      await this.#run(
+        ["/bin/sh", "-c", 'echo ".pi/jev-lens.log" >> .git/info/exclude'],
+        REPOSITORY_DIRECTORY,
+        {},
+      );
+    }
+    return clone;
   }
 
   startTask(sandboxName: string, prompt: string): Promise<"started" | "busy"> {

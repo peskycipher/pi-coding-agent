@@ -63,8 +63,11 @@ npm run deploy
 ```
 
 `npm run deploy` regenerates `worker-configuration.d.ts`, then builds the container image and
-deploys. The image is `node:24-bookworm-slim` plus Pi and the `pi-ollama-cloud-link` package, which
-registers the `ollama-cloud` provider and discovers its model catalog at runtime.
+deploys. The image is `node:24-bookworm-slim` plus Pi, `pi-ollama-cloud-link` (registers the
+`ollama-cloud` provider and discovers its model catalog at runtime), and `pi-jev-lens`
+(compresses large tool results before they reach the model through the same TypeSafe key; the image
+mirrors the host's `JEV_LENS_MODE=budget`, and a fresh clone excludes the decision log
+`.pi/jev-lens.log` from the returned diff).
 
 Change the model with the `MODEL` variable in `wrangler.jsonc` — it is an Ollama Cloud model ID
 such as `deepseek-v4.1-flash`, `kimi-k3`, or `glm-5.3`.
