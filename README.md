@@ -74,9 +74,12 @@ deploys. The image is `node:24-bookworm-slim` plus Pi and five packages:
   so `--no-session` sessions keep it.
 - `pi-jev-anti-slop` — the `jev_review` tool (TypeSafe code review across
   quality/correctness/security/… scopes).
-- `pi-jev-compaction` and `pi-jev-context-curator` — JEV-driven compaction and context curation.
-  Both need `TYPESAFE_API_KEY` (already wired) and otherwise run at their defaults; curator only
-  acts above an 8000-token context.
+- `pi-jev-compaction` — JEV-driven compaction. Needs `TYPESAFE_API_KEY` (already wired) and
+  otherwise runs at its defaults.
+
+(`pi-jev-context-curator` is deliberately out: with jev-lens compressing tool results, the curator
+mostly saw already-small contexts, and its decisions are not observable in `--mode json` to debug
+when they aren't right.)
 
 Change the model with the `MODEL` variable in `wrangler.jsonc` — it is an Ollama Cloud model ID
 such as `deepseek-v4.1-flash`, `kimi-k3`, or `glm-5.3`.

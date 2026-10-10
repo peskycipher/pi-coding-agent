@@ -13,8 +13,7 @@ RUN pi install npm:pi-ollama-cloud-link \
   && pi install npm:pi-jev-lens \
   && pi install npm:@juicesharp/rpiv-todo \
   && pi install npm:pi-jev-anti-slop \
-  && pi install npm:pi-jev-compaction \
-  && pi install npm:pi-jev-context-curator
+  && pi install npm:pi-jev-compaction
 # Classifiers are reachable only through codemode, which pi registers inactive by default.
 RUN node -e "const fs=require('fs');const p='/root/.pi/agent/settings.json';const s=JSON.parse(fs.readFileSync(p,'utf8'));s.defaultTools=['+codemode'];fs.writeFileSync(p,JSON.stringify(s,null,2)+'\n')"
 COPY --from=sandbox-tools /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
