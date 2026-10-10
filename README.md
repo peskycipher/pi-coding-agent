@@ -63,10 +63,11 @@ npm run deploy
 ```
 
 `npm run deploy` regenerates `worker-configuration.d.ts`, then builds the container image and
-deploys. The image is `node:24-bookworm-slim` plus Pi and five packages:
+deploys. The image is `node:24-bookworm-slim` plus Pi and seven packages:
 
 - `pi-ollama-cloud-link` — registers the `ollama-cloud` provider, discovers its model catalog at
-  runtime.
+  runtime. The image ships an `ollama_cloud.json` that turns off `specCheck` (its probe crashes the
+  process when another extension invalidates the runner mid-run) and the embeddings probe.
 - `pi-jev-lens` — compresses large tool results before they reach the model; shares the TypeSafe
   key. The image mirrors the host's `JEV_LENS_MODE=budget`, and a fresh clone excludes its
   decision log `.pi/jev-lens.log` from the returned diff.
@@ -76,10 +77,20 @@ deploys. The image is `node:24-bookworm-slim` plus Pi and five packages:
   quality/correctness/security/… scopes).
 - `pi-jev-compaction` — JEV-driven compaction. Needs `TYPESAFE_API_KEY` (already wired) and
   otherwise runs at its defaults.
+- `pi-follow-through` — Jev checks whether useful work remains after a run. Its README states it
+  skips JSON and print modes, so in this harness it is installed but inert; it activates only if
+  the invocation ever moves to RPC mode.
+- `@mjasnikovs/pi-task` — the four `pi-worker*` tools. `pi-worker` spawns an isolated read-only
+  child Pi; children run `--no-extensions`, so the image bakes a pi-task
+  `extensionWhitelist` naming the ollama-cloud provider extension and a
+  `defaultProvider`/`defaultModel` — without both, every child exits "No API key found".
+  `pi-worker-search`/`-fetch`/`-docs` still depend on hosts the egress policy does not allow,
+  so the agent will see fetch errors from them.
 
-(`pi-jev-context-curator` is deliberately out: with jev-lens compressing tool results, the curator
-mostly saw already-small contexts, and its decisions are not observable in `--mode json` to debug
-when they aren't right.)
+Deliberately out: `pi-jev-context-curator` (its decisions are unobservable in `--mode json`) and
+`pi-goal-x` (its goal continuation needs an interactive session; in one-shot JSON mode
+`create_goal` stops the run and the task reports an empty success). Re-add either if the harness
+moves to RPC mode, where both behave.
 
 Change the model with the `MODEL` variable in `wrangler.jsonc` — it is an Ollama Cloud model ID
 such as `deepseek-v4.1-flash`, `kimi-k3`, or `glm-5.3`.
