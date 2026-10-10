@@ -10,7 +10,11 @@ RUN apt-get update \
 RUN npm install --global --ignore-scripts @earendil-works/pi-coding-agent@1.1.0
 # Registers the ollama-cloud provider with the model catalog the host Pi uses.
 RUN pi install npm:pi-ollama-cloud-link \
-  && pi install npm:pi-jev-lens
+  && pi install npm:pi-jev-lens \
+  && pi install npm:@juicesharp/rpiv-todo \
+  && pi install npm:pi-jev-anti-slop \
+  && pi install npm:pi-jev-compaction \
+  && pi install npm:pi-jev-context-curator
 # Classifiers are reachable only through codemode, which pi registers inactive by default.
 RUN node -e "const fs=require('fs');const p='/root/.pi/agent/settings.json';const s=JSON.parse(fs.readFileSync(p,'utf8'));s.defaultTools=['+codemode'];fs.writeFileSync(p,JSON.stringify(s,null,2)+'\n')"
 COPY --from=sandbox-tools /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim

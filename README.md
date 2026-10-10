@@ -63,11 +63,20 @@ npm run deploy
 ```
 
 `npm run deploy` regenerates `worker-configuration.d.ts`, then builds the container image and
-deploys. The image is `node:24-bookworm-slim` plus Pi, `pi-ollama-cloud-link` (registers the
-`ollama-cloud` provider and discovers its model catalog at runtime), and `pi-jev-lens`
-(compresses large tool results before they reach the model through the same TypeSafe key; the image
-mirrors the host's `JEV_LENS_MODE=budget`, and a fresh clone excludes the decision log
-`.pi/jev-lens.log` from the returned diff).
+deploys. The image is `node:24-bookworm-slim` plus Pi and five packages:
+
+- `pi-ollama-cloud-link` — registers the `ollama-cloud` provider, discovers its model catalog at
+  runtime.
+- `pi-jev-lens` — compresses large tool results before they reach the model; shares the TypeSafe
+  key. The image mirrors the host's `JEV_LENS_MODE=budget`, and a fresh clone excludes its
+  decision log `.pi/jev-lens.log` from the returned diff.
+- `@juicesharp/rpiv-todo` — the `todo` tool for task tracking; state lives in the conversation,
+  so `--no-session` sessions keep it.
+- `pi-jev-anti-slop` — the `jev_review` tool (TypeSafe code review across
+  quality/correctness/security/… scopes).
+- `pi-jev-compaction` and `pi-jev-context-curator` — JEV-driven compaction and context curation.
+  Both need `TYPESAFE_API_KEY` (already wired) and otherwise run at their defaults; curator only
+  acts above an 8000-token context.
 
 Change the model with the `MODEL` variable in `wrangler.jsonc` — it is an Ollama Cloud model ID
 such as `deepseek-v4.1-flash`, `kimi-k3`, or `glm-5.3`.
