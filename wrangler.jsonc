@@ -1,0 +1,51 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pi-coding-agent",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-15",
+  // Files resolves native Linux errno names through node:os.
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "MODEL": "deepseek-v4.1-flash"
+  },
+  "secrets": {
+    "required": ["OLLAMA_API_KEY"]
+  },
+  "routes": [
+    {
+      "pattern": "code.proxyagent.rent",
+      "custom_domain": true
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SANDBOX",
+        "class_name": "PiSandbox"
+      }
+    ]
+  },
+  "containers": [
+    {
+      "class_name": "PiSandbox",
+      "scheduling_policy": "durable_object",
+      "images": {
+        "sandbox": {
+          "dockerfile": "./Dockerfile"
+        }
+      }
+    }
+  ],
+  "exports": {
+    "PiSandbox": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "observability": {
+    "enabled": true,
+    "traces": {
+      "enabled": true
+    }
+  }
+}
