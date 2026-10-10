@@ -16,7 +16,7 @@ const repositoryRequestSchema = z.object({
 export default {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
-    const match = /^\/sandboxes\/([^/]+)\/(repository|task|events|diff|execution)$/.exec(
+    const match = /^(?:\/sandboxes)?\/([^/]+)\/(repository|task|events|diff|execution)$/.exec(
       url.pathname,
     );
     if (match === null) return new Response("Not found", { status: 404 });
