@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -93,11 +93,17 @@ test("parseAction accepts tool calls, wrapped results, bare results, and rejects
 
 test("executeTool maps roles to runtime methods and fails soft on unknown roles", async () => {
 	RUNNERS.candidatefake = { command: process.execPath, args: ["-e", "process.exit(0)"] };
-	const { runtime } = runtimeFor(tmp("exec"));
+	const ws = tmp("exec");
+	mkdirSync(path.join(ws, "docs"), { recursive: true });
+	writeFileSync(path.join(ws, "docs", "a.md"), "# A\n");
+	writeFileSync(path.join(ws, "docs-check.json"), JSON.stringify({ runner: "docs-ci", samples: false }));
+	const { runtime } = runtimeFor(ws);
 	const unknown = await executeTool(runtime, { tool: "nope", args: {} }, { runner: "candidatefake" });
 	assert.equal(unknown.outcome, "error");
-	const missing = await executeTool(runtime, { tool: "run-check", args: {} }, { runner: "candidatefake" });
-	assert.equal(missing.outcome, "error");
+	const check = await executeTool(runtime, { tool: "run-check", args: {} }, { runner: "candidatefake" });
+	assert.equal(check.outcome, "ok");
+	assert.equal(check.passed, true);
+	assert.deepEqual(check.failures, []);
 	const ran = await executeTool(runtime, { tool: "run-suite", args: { target: "full" } }, { runner: "candidatefake" });
 	assert.equal(ran.outcome, "ok");
 });
@@ -128,6 +134,36 @@ test("candidate adapter runs a model→tool→observation loop through the dispa
 	assert.deepEqual(run.result, TEST_RESULT_JSON);
 	assert.deepEqual(trace.records.map((r) => r.role), ["env-check", "run-suite", "notify"]);
 	assert.equal(runtime.notifications.length, 1);
+});
+
+test("docs candidate adapter drives the run-check role end to end", async () => {
+	const ws = tmp("docs-check-loop");
+	mkdirSync(path.join(ws, "docs"), { recursive: true });
+	writeFileSync(path.join(ws, "docs", "cli.md"), "# CLI\n\n[ok](../README.md)\n");
+	writeFileSync(path.join(ws, "README.md"), "# Demo\n");
+	writeFileSync(path.join(ws, "docs-check.json"), JSON.stringify({ runner: "docs-ci", samples: false }));
+	const candidate = candidateDefinitions(ROOT).find((c) => c.agent === "docs");
+	const dispatch = buildDispatch({
+		dispatchId: "d-docs-check",
+		specialist: "docs",
+		taskRef: "t-docs",
+		instruction: "run docs-check over the corpus",
+		goal: "verify docs are clean",
+		requiresTools: ["run-check", "notify"],
+		budget: { tool_calls: 6, seconds: 60 },
+	});
+	const { runtime, trace } = runtimeFor(ws, { agent: "docs", scenario: "D1-flag-removed" });
+	const turns = [
+		fence({ tool: "run-check", args: {} }),
+		fence({ tool: "notify", args: { kind: "report", body: "docs check clean" } }),
+		fence({ result: DOCS_RESULT_JSON }),
+	];
+	let n = 0;
+	const adapter = createCandidateAdapter({ candidate, callModel: async () => turns[Math.min(n++, turns.length - 1)], model: "unit" });
+	const run = await runDispatch({ dispatch, runtime, agent: adapter });
+	assert.equal(run.valid, true, JSON.stringify(run.errors));
+	assert.deepEqual(run.result, DOCS_RESULT_JSON);
+	assert.deepEqual(trace.records.map((r) => r.role), ["run-check", "notify"]);
 });
 
 test("candidate adapter raises rather than inventing a RESULT after the step cap", async () => {

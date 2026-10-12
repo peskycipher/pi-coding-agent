@@ -323,9 +323,10 @@ present.
 7. Baseline ownership: who approves a baseline *improvement* re-write?
 8. Do we want a "test-agent-on-test-agent" dogfood scenario later (agent verifying the
    eval suite's own tests)? Interesting, but out of scope v1.
-9. `docs:check` implementation: build the link-checker + sample-runner once, shared by
-   fixtures and production bindings — or stub per fixture for the eval? (proposal:
-   build once; it's a deliverable of the docs agent's docs-CI detector, not eval-only)
+9. `docs:check` implementation — RESOLVED: built once in `shared/docs-check.ts` (internal
+   link checker + code-sample runner), shared by the eval harness `run-check` role and the
+   production `npm run docs:check` binding; D fixtures declare it with `docs-check.json`,
+   and a live docs specialist reaches it through `shared/shim.ts` `PiRunner.runCheck`.
 10. Index-building budget ceiling for first-dispatch scenarios relative to the doc
     corpus size in fixtures (proposal: index task gets the same dispatch budget as a
     drift-verification dispatch)

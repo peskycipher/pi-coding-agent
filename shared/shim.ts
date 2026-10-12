@@ -11,7 +11,9 @@
 //
 // Test/docs role execution (run-suite, env-check, git-info, gated edits) is bound at
 // install per workflows/bindings.md; it is the eval harness's job (test-eval-spec.md §6),
-// not this runtime shim's.
+// not this runtime shim's. The docs own-check role (`run-check`) is the exception: it is
+// built once in shared/docs-check.ts (spec §8 Q9) and exposed here as `PiRunner.runCheck`
+// so a live docs specialist can invoke the repo-configured docs check.
 //
 // Traces mirror evals/schemas/tool-trace.schema.json fields (args digests only).
 
@@ -19,6 +21,12 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import type { DispatchRecord, Specialist, SpecialistRunner } from "./io.ts";
+import {
+	resolveDocsCheckPlan,
+	runDocsCheck,
+	type DocsCheckPlan,
+	type DocsCheckResult,
+} from "./docs-check.ts";
 
 export interface ToolTraceRecord {
 	ts: string;
@@ -176,6 +184,7 @@ const RESULT_CONTRACT: Readonly<Record<Specialist, string[]>> = {
 		'{ "doc_updates": [{"path": string, "change": string, "evidence": [string], "risk": string}],',
 		'  "claims_index_delta": [object], "release_notes": string,',
 		'  "verdict": { "attested": [string], "stale_sections": [object] } }',
+		'note: run-check folds into verdict — passing checks → attested; failing links/samples → stale_sections.',
 	],
 	steelman: [
 		'{ "goal": string, "proposal": string, "premises": [{"claim": string, "basis": string}],',
@@ -194,28 +203,110 @@ export function resultContractHint(specialist: Specialist): string[] {
 	return [...RESULT_CONTRACT[specialist]];
 }
 
+/** Options for PiRunner: the CLI knobs plus the workspace and the bound docs-check plan. */
+export interface PiRunnerOptions {
+	model?: string;
+	timeoutMs?: number;
+	systemPrompt?: string;
+	/** repo root the live specialist runs in (defaults to the process cwd). */
+	workspace?: string;
+	/** the bindings/pi.yaml `agents.docs.roles.run-check` plan; defaults to the repo config. */
+	docsCheck?: Partial<DocsCheckPlan>;
+}
+
+/** Resolve the docs `run-check` role as bound for this harness (bindings/pi.yaml). */
+export function docsRunCheckPlan(workspace?: string, override?: Partial<DocsCheckPlan>): DocsCheckPlan {
+	return resolveDocsCheckPlan(workspace ?? process.cwd(), override);
+}
+
+/**
+ * Assemble the live Pi prompt for a dispatch. The docs specialist additionally gets its
+ * bound `run-check` command, so the model can invoke the repo-configured docs check and
+ * fold the result into `verdict.attested` / `verdict.stale_sections`.
+ */
+export function buildPiPrompt(
+	dispatch: DispatchRecord,
+	opts: { systemPrompt?: string; docsCheck?: Partial<DocsCheckPlan>; workspace?: string } = {},
+): string {
+	const systemPrompt = opts.systemPrompt ?? systemPromptFor(dispatch.specialist);
+	const toolRoles: string[] = [];
+	if (dispatch.specialist === "docs") {
+		const plan = docsRunCheckPlan(opts.workspace, opts.docsCheck);
+		const commandLine =
+			plan.kind === "docs-ci"
+				? "docs-ci (internal link checker + code-sample runner)"
+				: [plan.command, ...(plan.args ?? [])].filter(Boolean).join(" ");
+		toolRoles.push(
+			"",
+			"--- BOUND TOOL ROLES (workflows/bindings.md; capabilities, not prompt gates) ---",
+			`run-check: ${commandLine}`,
+			"Run the docs check before you submit. Passing checks satisfy verdict.attested;",
+			"failing links/samples belong in verdict.stale_sections with the failing path/section.",
+		);
+	}
+	// feed the contract + the dispatch as one prompt; the specialist reads the workspace itself
+	return [
+		systemPrompt,
+		...toolRoles,
+		"",
+		`--- DISPATCH (you are the ${dispatch.specialist}; objective only, no meta) ---`,
+		`OBJECTIVE: ${dispatch.input.goal}`,
+		dispatch.input.constraints?.length ? `CONSTRAINTS: ${dispatch.input.constraints.join("; ")}` : "",
+		dispatch.input.ledger_refs?.length ? `LEDGER REFS: ${dispatch.input.ledger_refs.join("; ")}` : "",
+		dispatch.input.fatal_flaws?.length ? `FATAL FLAWS TO ADDRESS: ${dispatch.input.fatal_flaws.map((f) => f.claim).join("; ")}` : "",
+		"",
+		'OUTPUT REQUIREMENT: end your reply with one fenced ```json block — an object with EXACTLY',
+		"these fields (schema-validated, all required):",
+		...resultContractHint(dispatch.specialist),
+	].filter(Boolean).join("\n");
+}
+
 /** Real model runner: local pi CLI (--mode json, no session) with the specialist contract. */
 export class PiRunner implements SpecialistRunner {
-	private readonly opts: { model?: string; timeoutMs?: number; systemPrompt?: string };
-	constructor(opts: { model?: string; timeoutMs?: number; systemPrompt?: string } = {}) {
+	private readonly opts: PiRunnerOptions;
+	/** tool-trace records for the roles this runner executes itself (docs `run-check`). */
+	readonly toolTrace: ToolTraceRecord[] = [];
+
+	constructor(opts: PiRunnerOptions = {}) {
 		this.opts = opts;
 	}
+
+	/**
+	 * Execute the bound docs `run-check` role against the runner's workspace and return the
+	 * structured pass/fail result (`shared/docs-check.ts`). A live docs specialist uses this
+	 * the same way the eval harness's `ToolRuntime.runCheck` does.
+	 */
+	runCheck({ timeoutMs }: { timeoutMs?: number } = {}): DocsCheckResult {
+		const started = Date.now();
+		try {
+			const result = runDocsCheck(this.opts.workspace ?? process.cwd(), {
+				plan: this.opts.docsCheck,
+				timeoutMs,
+			});
+			this.toolTrace.push({
+				ts: new Date().toISOString(),
+				agent: "docs",
+				role: "run-check",
+				argsDigest: digest(result.source),
+				outcome: result.outcome,
+				durationMs: Date.now() - started,
+			});
+			return result;
+		} catch (err) {
+			this.toolTrace.push({
+				ts: new Date().toISOString(),
+				agent: "docs",
+				role: "run-check",
+				argsDigest: digest((err as Error).message),
+				outcome: "error",
+				durationMs: Date.now() - started,
+			});
+			throw err;
+		}
+	}
+
 	async run(dispatch: DispatchRecord): Promise<unknown> {
-		const systemPrompt = this.opts.systemPrompt ?? systemPromptFor(dispatch.specialist);
-		// feed the contract + the dispatch as one prompt; the specialist reads the workspace itself
-		const prompt = [
-			systemPrompt,
-			"",
-			`--- DISPATCH (you are the ${dispatch.specialist}; objective only, no meta) ---`,
-			`OBJECTIVE: ${dispatch.input.goal}`,
-			dispatch.input.constraints?.length ? `CONSTRAINTS: ${dispatch.input.constraints.join("; ")}` : "",
-			dispatch.input.ledger_refs?.length ? `LEDGER REFS: ${dispatch.input.ledger_refs.join("; ")}` : "",
-			dispatch.input.fatal_flaws?.length ? `FATAL FLAWS TO ADDRESS: ${dispatch.input.fatal_flaws.map((f) => f.claim).join("; ")}` : "",
-			"",
-			'OUTPUT REQUIREMENT: end your reply with one fenced ```json block — an object with EXACTLY',
-			"these fields (schema-validated, all required):",
-			...resultContractHint(dispatch.specialist),
-		].filter(Boolean).join("\n");
+		const prompt = buildPiPrompt(dispatch, this.opts);
 		const argv = ["pi", "--mode", "json", "--no-session", "--"];
 		if (this.opts.model) argv.splice(2, 0, "--provider", "ollama-cloud", "--model", this.opts.model);
 		argv.push(prompt);

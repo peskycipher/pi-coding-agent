@@ -8,6 +8,7 @@
     "types": "wrangler types worker-configuration.d.ts --include-runtime=false",
     "check": "npm run types && tsc --noEmit",
     "test": "node --test tests/",
+    "docs:check": "node scripts/docs-check.mjs",
     "eval:calibrate": "node evals/fixtures/generate.mjs",
     "eval:core": "node evals/harness/run.mjs core",
     "eval:full": "node evals/harness/run.mjs full",

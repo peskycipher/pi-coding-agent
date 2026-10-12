@@ -50,6 +50,19 @@ agents:              # one block per specialist actually deployed
   contrarian: { roles: {}, note: "text-in/text-out; near-zero tools; runs on both EO-side (spec gate) and IO-side dispatches" }
 ```
 
+## The docs `run-check` role (shared implementation)
+
+The `docs` `run-check` role is the one role whose implementation is built once and shared between the
+eval harness and production (test-eval-spec.md §8 Q9): `shared/docs-check.ts` is the link
+checker + code-sample runner (the docs agent's detector 2). A repo configures it with a
+root `docs-check.json` — `{ "runner": "docs-ci", "samples": true }` for the shared detector,
+or `{ "command", "args" }` for a repo script; absent that, the binding's
+`npm run docs:check` script is used, and the eval harness falls back to the same command.
+The role returns a structured `{ passed, exitCode, failures[], checks[], source }` that the
+docs specialist folds into its RESULT (`verdict.attested` for passing checks,
+`verdict.stale_sections` for failing links/samples). Execution is read-only and path-jailed:
+the command is allow-listed and every path-shaped argument must resolve inside the workspace.
+
 ## Required properties
 
 1. **Role → executable map** — every role a specialist's `Tools` table lists maps to a

@@ -106,10 +106,12 @@ export function toolProtocol(agent) {
 		'- git-info         {"args": ["log", "-1"]}   (read-only verbs only)',
 		'- test-edit        {"path": "<test code>", "content": "<new text>"}',
 		'- docs-edit        {"path": "<docs/**>", "content": "<new text>"}',
-		'- run-check        {"command": "<docs check>", "args": [...]}',
+		'- run-check        {}   (runs the repo-configured docs check: link checker + sample runner)',
 		'- notify           {"kind": "report", "body": "<human report>", ...}',
 		"",
 		`The bound runner is supplied by the harness; the permitted roles for this dispatch are: ${roles.join(", ")}.`,
+		"run-check returns { passed, failures[], checks[] }; fold passing checks into verdict.attested",
+		"and failing links/samples into verdict.stale_sections — a patch whose own check fails is not submitted.",
 		"Use notify for the run report (and quarantine proposals); the RESULT is the machine-checked object.",
 	].join("\n");
 }
@@ -204,6 +206,10 @@ export function compactObservation(result) {
 	if (result.exitCode !== undefined) out.exitCode = result.exitCode;
 	if (result.error !== undefined) out.error = result.error;
 	if (result.gaps !== undefined) out.gaps = result.gaps;
+	if (result.passed !== undefined) out.passed = result.passed;
+	if (result.source !== undefined) out.source = result.source;
+	if (result.checks !== undefined) out.checks = result.checks.slice(0, 50);
+	if (result.failures !== undefined) out.failures = result.failures.slice(0, 50);
 	if (result.files !== undefined) out.files = result.files;
 	if (result.diff !== undefined) out.diff = String(result.diff).slice(0, 2000);
 	if (result.hits !== undefined) out.hits = result.hits.slice(0, 50);

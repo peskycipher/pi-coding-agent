@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import { test } from "node:test";
 import path from "node:path";
 
 import { IoHarness, InMemoryLedger, type HarnessEvent } from "../shared/io.ts";
-import { ScriptedRunner, ScoutToolShim, PiRunner } from "../shared/shim.ts";
+import { ScriptedRunner, ScoutToolShim, PiRunner, buildPiPrompt } from "../shared/shim.ts";
 import { checkDispatch, checkResult } from "../shared/wire.ts";
 
 const WS = path.join(new URL("../", import.meta.url).pathname, "evals/fixtures/scout-ws");
@@ -141,6 +143,38 @@ test("scout tool shim: real read-only roles execute against the fixture workspac
 	assert.ok(shim.consumedToolCalls === 3 && !shim.budgetExhausted);
 	assert.deepEqual(shim.trace.map((t) => t.role), ["glob", "grep", "read"]);
 	assert.ok(shim.trace.every((t) => t.outcome === "ok" && typeof t.durationMs === "number"));
+});
+
+test("PiRunner docs prompt carries the bound run-check role (live wiring)", () => {
+	const dispatch = {
+		dispatch_id: "d-docs-live", specialist: "docs" as const, task_ref: "t-docs-live",
+		instruction: "run the nightly docs sweep", input: { goal: "detect docs drift" },
+		requires_tools: ["run-check", "read-log", "workspace-read", "git-info", "docs-edit", "notify"],
+		budget: { tool_calls: 15, seconds: 300 }, reply_expected: "RESULT" as const,
+	};
+	const docsCheck = { kind: "command" as const, command: "npm", args: ["run", "docs:check", "--silent"], source: "bindings/pi.yaml" };
+	const prompt = buildPiPrompt(dispatch, { docsCheck });
+	assert.match(prompt, /BOUND TOOL ROLES/);
+	assert.match(prompt, /run-check: npm run docs:check --silent/);
+	assert.match(prompt, /verdict\.stale_sections/);
+	// result contract hint names the run-check mapping for the docs specialist
+	assert.match(prompt, /run-check folds into verdict/);
+
+	const scout = buildPiPrompt({ ...dispatch, specialist: "scout" as const }, { docsCheck });
+	assert.doesNotMatch(scout, /run-check:/);
+});
+
+test("PiRunner.runCheck executes the bound docs check and traces the role", () => {
+	const ws = mkdtempSync(path.join(os.tmpdir(), "pi-docs-check-"));
+	mkdirSync(path.join(ws, "docs"), { recursive: true });
+	writeFileSync(path.join(ws, "docs", "a.md"), "# A\n\n[ok](./b.md)\n");
+	writeFileSync(path.join(ws, "docs", "b.md"), "# B\n");
+	const runner = new PiRunner({ workspace: ws, docsCheck: { kind: "docs-ci", samples: false, source: "test" } });
+	const res = runner.runCheck();
+	assert.equal(res.outcome, "ok");
+	assert.equal(res.passed, true);
+	assert.equal(runner.toolTrace.at(-1)?.role, "run-check");
+	assert.equal(runner.toolTrace.at(-1)?.outcome, "ok");
 });
 
 test("PiRunner is wired to the machine pi CLI (live verification gated behind PI_EVAL_LIVE)", { skip: !process.env.PI_EVAL_LIVE }, async () => {

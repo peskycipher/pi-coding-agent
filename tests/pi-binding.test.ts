@@ -20,3 +20,7 @@ test("bindings/pi.yaml declares the harness and every deployed specialist", () =
 		["build", "contrarian", "docs", "plan", "scout", "steelman", "test"],
 	);
 });
+
+test("bindings/pi.yaml binds the docs run-check role to the docs:check script", () => {
+	assert.equal(doc.agents.docs.roles["run-check"].command, "npm run docs:check");
+});

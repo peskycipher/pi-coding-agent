@@ -107,6 +107,14 @@ test("generated docs-agent fixtures carry a non-empty tree and a drift manifest"
 		if (s.agent !== "docs" || seen.has(rel)) continue;
 		seen.add(rel);
 		if (!existsSync(path.join(ROOT, rel)) || readdirSync(path.join(ROOT, rel)).length === 0) problems.push(`${rel}: empty fixture tree`);
+		// Every D fixture must declare the shared docs-CI detector so the run-check role is
+		// reachable (spec §8 Q9).
+		const checkConfig = path.join(ROOT, rel, "docs-check.json");
+		if (!existsSync(checkConfig)) problems.push(`${rel}: missing docs-check.json`);
+		else {
+			const cfg = JSON.parse(readFileSync(checkConfig, "utf8"));
+			if (cfg.runner !== "docs-ci") problems.push(`${rel}: docs-check.json runner must be docs-ci`);
+		}
 		const file = path.join(ROOT, rel, "fixture.json");
 		if (!existsSync(file)) {
 			problems.push(`${rel}: missing fixture.json`);

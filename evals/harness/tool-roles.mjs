@@ -1,10 +1,12 @@
 // Tool-role implementations for the eval harness (spec: workflows/test-eval-spec.md §1/§6,
 // roles per workflows/test/workflow.md and workflows/docs-agent/design.md).
 //
-// The harness executes the real seven test roles (+ docs run-check/notify) against fixture
-// repos. Every call is traced through TraceRecorder, path-jailed to the provisioned
-// workspace, and charged against the DISPATCH budget. `test-edit` is gated to test code and
-// produces the diff that the S1/S2 safety gates consume (spec A6).
+// The harness executes the real seven test roles plus the docs roles
+// (`run-check`/`docs-edit`/`notify`) against fixture repos. Every call is traced through
+// TraceRecorder, path-jailed to the provisioned workspace, and charged against the
+// DISPATCH budget. `test-edit` is gated to test code and `docs-edit` to docs paths; both
+// produce the diffs that the S1/S2/S6 safety gates consume (spec A6). `run-check` runs the
+// repo-configured docs check through shared/docs-check.ts (spec §8 Q9).
 //
 // Runner adapters mirror evals/fixtures/generate.mjs so calibration and eval invoke the
 // same way (jest --runInBand --silent --watchman=false; pytest -p no:cacheprovider).
@@ -23,12 +25,14 @@ import {
 import path from "node:path";
 
 import { TraceRecorder } from "./trace.mjs";
+import { runDocsCheck } from "../../shared/docs-check.ts";
 
 // EO-protocol §Timeouts defaults (single authority), mirrored locally so the eval harness
 // is runnable without importing the Worker bundle.
 export const DEFAULT_ROLE_TIMEOUT_S = {
 	"run-suite": 1800,
 	"run-test": 300,
+	"run-check": 300,
 	"read-log": 60,
 	"workspace-read": 60,
 	"env-check": 60,
@@ -244,6 +248,22 @@ export class ToolRuntime {
 
 	async runTest({ runner, target, env, timeoutMs } = {}) {
 		return this.#runTests("run-test", { runner, target, env, timeoutMs });
+	}
+
+	/**
+	 * run-check: the docs agent's own-check role (spec §8 Q9). Resolves the
+	 * repo-configured docs check (`docs-check.json` → `package.json` `docs:check` →
+	 * the bindings.md default `npm run docs:check`), executes it read-only and
+	 * path-jailed through shared/docs-check.ts, and returns the structured pass/fail
+	 * result the docs specialist folds into its RESULT contract (`verdict.attested`
+	 * for passing checks, `verdict.stale_sections` for failing links/samples).
+	 */
+	async runCheck({ timeoutMs } = {}) {
+		return this.#invoke("run-check", { check: "docs" }, () =>
+			runDocsCheck(this.workspace, {
+				timeoutMs: timeoutMs ?? DEFAULT_ROLE_TIMEOUT_S["run-check"] * 1000,
+			}),
+		);
 	}
 
 	#runTests(role, { runner, target, env, timeoutMs }) {

@@ -169,6 +169,48 @@ test("env-check reports gaps and notifies the requesting surface", async () => {
 	assert.equal(trace.records.at(-1).role, "notify");
 });
 
+test("run-check runs the repo-configured docs CI and returns a structured pass/fail", async () => {
+	const ws = tmp("docs-check");
+	mkdirSync(path.join(ws, "docs"), { recursive: true });
+	writeFileSync(path.join(ws, "docs", "a.md"), "# A\n\n[ok](./b.md)\n[bad](./missing.md)\n");
+	writeFileSync(path.join(ws, "docs", "b.md"), "# B\n");
+	writeFileSync(path.join(ws, "docs-check.json"), JSON.stringify({ runner: "docs-ci", samples: false }));
+	const { runtime, trace } = runtimeFor(ws);
+	const res = await runtime.runCheck();
+	assert.equal(res.outcome, "error");
+	assert.equal(res.passed, false);
+	assert.equal(res.source, "docs-check.json");
+	assert.equal(res.exitCode, 1);
+	assert.ok(res.failures.some((f) => f.includes("missing.md")), JSON.stringify(res.failures));
+	assert.equal(trace.records.at(-1).role, "run-check");
+	assert.equal(trace.records.at(-1).outcome, "error");
+	assert.equal(runtime.consumed, 1);
+});
+
+test("run-check executes an allow-listed repo command and parses its JSON report", async () => {
+	const ws = tmp("docs-check-cmd");
+	const report = JSON.stringify({ checks: [{ name: "link", passed: false, detail: "dead" }] });
+	writeFileSync(
+		path.join(ws, "docs-check.json"),
+		JSON.stringify({ command: "node", args: ["-e", `console.log(JSON.stringify(${report}))`] }),
+	);
+	const { runtime } = runtimeFor(ws);
+	const res = await runtime.runCheck();
+	assert.equal(res.outcome, "error");
+	assert.equal(res.passed, false);
+	assert.deepEqual(res.checks, [{ name: "link", passed: false, detail: "dead" }]);
+	assert.equal(res.source, "docs-check.json");
+});
+
+test("run-check refuses non-allow-listed commands and escaping paths (path jail)", async () => {
+	const ws = tmp("docs-check-gate");
+	writeFileSync(path.join(ws, "docs-check.json"), JSON.stringify({ command: "rm", args: ["-rf", "/"] }));
+	const { runtime } = runtimeFor(ws);
+	await assert.rejects(() => runtime.runCheck(), /not allow-listed/);
+	writeFileSync(path.join(ws, "docs-check.json"), JSON.stringify({ command: "node", args: ["../../escape.js"] }));
+	await assert.rejects(() => runtime.runCheck(), /escapes workspace/);
+});
+
 test("tool-call budget is enforced and the overrun is traced", async () => {
 	RUNNERS.fake = { command: process.execPath, args: ["-e", "process.exit(0)"] };
 	const ws = tmp("budget");

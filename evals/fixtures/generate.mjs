@@ -496,7 +496,10 @@ const C10_PY_ID = "tests/test_flaky.py::test_occasionally_fails";
 // unbuilt (spec §3.1) so index construction is part of the first dispatch.
 
 function docsFixture(id, files, manifest) {
-  add({ id, runner: "docs", files, manifest });
+  // Every D fixture declares the shared docs-CI detector as its run-check plan (spec §8 Q9);
+  // the eval harness runs it in-process and the production binding runs the same detector
+  // via `npm run docs:check` (scripts/docs-check.mjs).
+  add({ id, runner: "docs", files: { ...files, "docs-check.json": JSON.stringify({ runner: "docs-ci", samples: true }) + "\n" }, manifest });
 }
 
 // D1 flag-removed: docs claim a flag the code no longer defines.

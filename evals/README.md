@@ -10,8 +10,12 @@ baseline, and the C/D fixture catalog are implemented and tested.** `fixtures/ge
 now emits deterministic fixture repos + `fixture.json` ground-truth manifests for the planned
 catalog (C1–C14, D1–D10, including the C7/D9 paired controls) alongside the calibrated
 flake fixtures; the three committed flake fixtures (`jest-flake-order`, `pytest-flake-order`,
-`jest-flake-seed`) are **preserved untouched**. The full C/D catalog is now present; the
-remaining gap is the model-matrix IDs (spec §8 Q1/Q2). See
+`jest-flake-seed`) are **preserved untouched**. The full C/D catalog is now present, and the docs `run-check`
+role is implemented (spec §8 Q9): the shared detector in `shared/docs-check.ts` runs the
+repo-configured check (`docs-check.json` → `package.json` `docs:check` → the binding default),
+returns a structured pass/fail consumed by the docs RESULT contract, and is exposed to a live docs
+specialist through `shared/shim.ts` `PiRunner.runCheck`. The remaining gap is the model-matrix IDs
+(spec §8 Q1/Q2). See
 [What is built vs. remaining](#what-is-built-vs-remaining).
 
 ## Layout
@@ -21,7 +25,8 @@ remaining gap is the model-matrix IDs (spec §8 Q1/Q2). See
 | `fixtures/generate.mjs` | Seeded flake calibration + deterministic catalog generator (emits `C*-*`/`D*-*` repos + `fixture.json`). |
 | `fixtures/out/**` | Committed fixture repos: the preserved flakes `jest-flake-order`, `pytest-flake-order`, `jest-flake-seed`, plus the generated catalog (`C1`–`C14`, `D1`–`D10`, with C7/D9 controls) and `fixture.json` manifests. |
 | `harness/trace.mjs` | Tool-trace recorder; one schema-validated JSON line per call. |
-| `harness/tool-roles.mjs` | The seven test roles + docs roles: `run-suite`, `run-test`, `read-log`, `workspace-read`, `env-check`, `git-info`, `test-edit`, `docs-edit`, `notify`. Path-jailed, budgeted, traced. |
+| `harness/tool-roles.mjs` | The seven test roles + docs roles: `run-suite`, `run-test`, `run-check`, `read-log`, `workspace-read`, `env-check`, `git-info`, `test-edit`, `docs-edit`, `notify`. Path-jailed, budgeted, traced. |
+| `../shared/docs-check.ts` | The shared docs-CI detector (internal link checker + code-sample runner) and docs-check plan resolver used by both `run-check` and the production `npm run docs:check`. |
 | `harness/dispatcher.mjs` | Dispatcher shim: builds/validates DISPATCH, invokes the candidate, validates RESULT, captures `notify`, optional `retry: fresh` re-dispatch. |
 | `harness/config.mjs` | YAML loader (js-yaml). |
 | `harness/run.mjs` | Runner CLI and `runEval` / `runScenario`. |
@@ -82,6 +87,10 @@ fixtures are never rewritten. The pytest runner defaults to `.venv-eval/bin/pyth
 - **Safety substrate**: `test-edit`/`docs-edit` are gated by path (`isTestPath` /
   `isDocsPath`) and return the resulting diff, which S1/S2/S6 consume. `git-info` refuses
   remote/staging verbs; `run-suite` uses the same jest/pytest invocation as the generator.
+  `run-check` runs the repo-configured docs check (spec §8 Q9; shared detector in
+  `shared/docs-check.ts`) read-only and path-jailed, and returns
+  `{ passed, exitCode, failures[], checks[], source }` for the docs specialist to fold into
+  `verdict.attested` / `verdict.stale_sections`.
 - **Fixture manifest** (`fixture.json` in a fixture repo, overlaid by `manifest_hints`):
   ground truth the scorer reads — e.g. `tests[{testId, expectedClass}]`,
   `first_attempt_pass_rate`, `coverage_partial`, `requires_preflight`, `no_suite_burn`,
@@ -129,9 +138,13 @@ Remaining:
    model name is invented. The judge calibration defaults (thresholds + rotation) are in
    `judge/calibration.mjs` and mirrored in `models.yaml`, to be tuned after the first
    calibration month.
-3. **Docs `run-check` binding** — the candidate adapter maps it, but `ToolRuntime` has no
-   `run-check`/`docs:check` implementation yet (spec §8 Q9); the D-scenarios block on fixture
-   generation first, so this is only reachable once those land.
+3. **Docs `run-check` binding** — **implemented** (spec §8 Q9). `shared/docs-check.ts`
+   resolves the repo-configured docs check (`docs-check.json` → `package.json`
+   `docs:check` → the binding default), runs the shared link-checker + sample-runner, and
+   returns a structured pass/fail. `ToolRuntime.runCheck` (`run-check`) and a live
+   `PiRunner.runCheck` both consume it; every D fixture declares `{"runner":"docs-ci"}` and
+   the production `npm run docs:check` (scripts/docs-check.mjs) runs the same detector.
+   Re-check once a real candidate run produces docs-check evidence end to end.
 4. **Quarantine/report field extraction** — S4 now matches the real agent RESULT shapes
    (`shared/shim.ts` `RESULT_CONTRACT`): test-agent quarantine records come from the
    `notify` RUN REPORT, docs-agent stale-section records from

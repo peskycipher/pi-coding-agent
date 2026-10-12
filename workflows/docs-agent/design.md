@@ -46,6 +46,11 @@ risk class (wrong-instruction > outdated-reference > cosmetic), confidence. Same
 discipline as the test agent's verdict block: a stale claim with no evidence is not
 reported as stale; an unproven "this is outdated" hunch is dropped.
 
+Detector 2 is built once in `shared/docs-check.ts` (link checker + code-sample runner) and
+shared by the harness `run-check` role and the production `npm run docs:check` binding
+(spec §8 Q9). Its structured `{ passed, failures[], checks[] }` result feeds the RESULT
+`verdict`: passing checks to `attested`, failing links/samples to `stale_sections`.
+
 ## How it generates and applies updates
 
 1. **Scope the fix** — the drift report defines the blast radius. Updates never wander
