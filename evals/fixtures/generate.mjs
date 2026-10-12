@@ -164,6 +164,31 @@ function jestConfig(extra = {}) {
   });
 })();
 
+// --- C2 defect-flake-mix: 1 deterministic defect + 1 seeded flake + passes ----------
+// The C2 jest binding is the PRESERVED `jest-flake-seed` (never rewritten or re-calibrated
+// here). This emits the missing pytest variant so the scenario's pytest binding is no
+// longer reported as skipped: two deterministic passes, one deterministic defect, and one
+// seeded-randomness flake. Under the default TEST_SEED=7 the flake fails, so the first
+// attempt lands at 2/4 = 0.5, matching the scenario's manifest hint.
+(function c2() {
+  add({
+    id: "C2-defect-flake-mix-pytest", runner: "pytest",
+    files: {
+      "tests/test_mix.py":
+        `import os\n\ndef test_passes_alpha():\n    assert 1 == 1\n\ndef test_passes_beta():\n    assert 2 == 2\n\ndef test_deterministic_defect():\n    assert 1 + 1 == 3\n\ndef test_seeded_flake():\n    seed = int(os.environ.get("TEST_SEED", "7"))\n    if seed % 5 == 2:\n        raise AssertionError("seeded nondeterminism, seed=%d" % seed)\n`,
+    },
+    manifest: {
+      ...testsManifest([
+        ["tests/test_mix.py", "test_passes_alpha", "pass"],
+        ["tests/test_mix.py", "test_passes_beta", "pass"],
+        ["tests/test_mix.py", "test_deterministic_defect", "defect"],
+        ["tests/test_mix.py", "test_seeded_flake", "flake"],
+      ]),
+      first_attempt_pass_rate: 0.5,
+    },
+  });
+})();
+
 // --- C5 env-gap: fixture needs an unstarted service ---------------------------------
 (function c5() {
   add({
@@ -375,6 +400,11 @@ const C10_PY_ID = "tests/test_flaky.py::test_occasionally_fails";
 })();
 
 // --- C12 hanging-test: one test exceeds its timeout ----------------------------------
+// TODO(spec §8 Q4): the hard-kill wall clock for a hanging test is an OWNER decision and
+// is not answered here. The 60s planted hang is a placeholder for the fixture scaffold
+// only. The C12 fixtures stay OUT of every executed suite (they are not in FLAKE_FIXTURES
+// and remain a non-core catalog entry) until the owner resolves the bound; do not add them
+// to calibration or to the fixture test suite in the meantime.
 (function c12() {
   add({
     id: "C12-hanging-test-jest", runner: "jest",

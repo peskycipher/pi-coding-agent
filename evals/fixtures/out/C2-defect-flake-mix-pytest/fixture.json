@@ -1,0 +1,21 @@
+{
+  "tests": [
+    {
+      "testId": "tests/test_mix.py::test_passes_alpha",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/test_mix.py::test_passes_beta",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/test_mix.py::test_deterministic_defect",
+      "expectedClass": "defect"
+    },
+    {
+      "testId": "tests/test_mix.py::test_seeded_flake",
+      "expectedClass": "flake"
+    }
+  ],
+  "first_attempt_pass_rate": 0.5
+}

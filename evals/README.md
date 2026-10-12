@@ -8,17 +8,18 @@ traced.
 Status: **harness, scorer, rubric, judge (+ calibration), real candidate adapters, config,
 baseline, and the C/D fixture catalog are implemented and tested.** `fixtures/generate.mjs`
 now emits deterministic fixture repos + `fixture.json` ground-truth manifests for the planned
-catalog (C1, C4–C14, D1–D10, including the C7/D9 paired controls) alongside the calibrated
+catalog (C1–C14, D1–D10, including the C7/D9 paired controls) alongside the calibrated
 flake fixtures; the three committed flake fixtures (`jest-flake-order`, `pytest-flake-order`,
-`jest-flake-seed`) are **preserved untouched**. The remaining gaps are the C2 pytest variant
-and model-matrix IDs. See [What is built vs. remaining](#what-is-built-vs-remaining).
+`jest-flake-seed`) are **preserved untouched**. The full C/D catalog is now present; the
+remaining gap is the model-matrix IDs (spec §8 Q1/Q2). See
+[What is built vs. remaining](#what-is-built-vs-remaining).
 
 ## Layout
 
 | Path | Purpose |
 |---|---|
 | `fixtures/generate.mjs` | Seeded flake calibration + deterministic catalog generator (emits `C*-*`/`D*-*` repos + `fixture.json`). |
-| `fixtures/out/**` | Committed fixture repos: the preserved flakes `jest-flake-order`, `pytest-flake-order`, `jest-flake-seed`, plus the generated catalog (`C1`, `C4–C14`, `D1–D10`, with C7/D9 controls) and `fixture.json` manifests. |
+| `fixtures/out/**` | Committed fixture repos: the preserved flakes `jest-flake-order`, `pytest-flake-order`, `jest-flake-seed`, plus the generated catalog (`C1`–`C14`, `D1`–`D10`, with C7/D9 controls) and `fixture.json` manifests. |
 | `harness/trace.mjs` | Tool-trace recorder; one schema-validated JSON line per call. |
 | `harness/tool-roles.mjs` | The seven test roles + docs roles: `run-suite`, `run-test`, `read-log`, `workspace-read`, `env-check`, `git-info`, `test-edit`, `docs-edit`, `notify`. Path-jailed, budgeted, traced. |
 | `harness/dispatcher.mjs` | Dispatcher shim: builds/validates DISPATCH, invokes the candidate, validates RESULT, captures `notify`, optional `retry: fresh` re-dispatch. |
@@ -117,11 +118,12 @@ config catalog, baseline, runner scripts, scheduler guide (`CI.md`), and tests
 
 Remaining:
 1. **Fixtures** — the C1–C14 + D1–D10 repos and their `fixture.json` manifests are now
-   generated and committed; the three flake fixtures are preserved. The one declared fixture
-   still absent is C2's pytest variant (`C2-defect-flake-mix-pytest`); the runner reports it
-   as skipped and `tests/eval-fixtures.test.ts` documents the gap. *(Re-run `npm run
-   eval:calibrate` after editing `fixtures/generate.mjs`; it is idempotent and never rewrites
-   the preserved three.)*
+   generated and committed; the three flake fixtures are preserved. The catalog is complete:
+   C2's pytest variant (`C2-defect-flake-mix-pytest`) is generated and both C2 runner bindings
+   are present, so the runner no longer skips the scenario. C12's hanging fixtures stay out of
+   the core/executed suite until spec §8 Q4 fixes the hard-kill wall clock (TODO in
+   `fixtures/generate.mjs`). *(Re-run `npm run eval:calibrate` after editing
+   `fixtures/generate.mjs`; it is idempotent and never rewrites the preserved three.)*
 2. **Model matrix IDs / judge model** — `config/models.yaml` keeps `owner-to-fill-*`
    placeholders with `TODO(spec §8 Q1/Q2)` notes; the owner decision is pending, so no
    model name is invented. The judge calibration defaults (thresholds + rotation) are in

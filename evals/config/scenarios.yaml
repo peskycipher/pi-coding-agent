@@ -27,7 +27,7 @@ scenarios:
   - id: C2-defect-flake-mix
     agent: test
     core: true
-    fixture_status: partial
+    fixture_status: present
     fixtures: { jest: evals/fixtures/out/jest-flake-seed, pytest: evals/fixtures/out/C2-defect-flake-mix-pytest }
     expected_checks: [M1.classification, M1.first_attempt_rate, S1.masking]
     dispatch:
