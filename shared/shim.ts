@@ -1,18 +1,24 @@
 // Specialist shim — tool-role implementations and SpecialistRunner bindings
 // (workflows/bindings.md; evals tool-trace record per test-eval-spec.md §6).
 //
-// Increment 1: scout's read roles (glob, grep, read) execute for real against a
-// workspace directory; runners:
+// The tool shim executes scout's read roles (glob, grep, read) for real against a
+// workspace directory. The model runner is specialist-aware: it loads the system prompt
+// for `dispatch.specialist` and restates that specialist's RESULT contract, so the harness
+// can drive scout, plan, build, test, docs, and the adversarial gate pair.
 //   - ScriptedRunner: deterministic RESULT payloads for tests/harness verification
-//   - PiRunner: real model run via the local pi CLI (--mode json -- no session),
+//   - PiRunner: real model run via the local pi CLI (--mode json, no session),
 //     extracting the fenced-JSON RESULT block from the model output.
+//
+// Test/docs role execution (run-suite, env-check, git-info, gated edits) is bound at
+// install per workflows/bindings.md; it is the eval harness's job (test-eval-spec.md §6),
+// not this runtime shim's.
 //
 // Traces mirror evals/schemas/tool-trace.schema.json fields (args digests only).
 
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import type { DispatchRecord, SpecialistRunner } from "./io.ts";
+import type { DispatchRecord, Specialist, SpecialistRunner } from "./io.ts";
 
 export interface ToolTraceRecord {
 	ts: string;
@@ -126,31 +132,89 @@ export class ScriptedRunner implements SpecialistRunner {
 	}
 }
 
-export const SCOUT_SYSTEM_PROMPT_FILE = path.join(new URL("../workflows/scout/system-prompt.md", import.meta.url).pathname);
+export const SPECIALIST_SYSTEM_PROMPT_FILES: Readonly<Record<Specialist, string>> = {
+	scout: path.join(new URL("../workflows/scout/system-prompt.md", import.meta.url).pathname),
+	plan: path.join(new URL("../workflows/planning/system-prompt.md", import.meta.url).pathname),
+	build: path.join(new URL("../workflows/build/system-prompt.md", import.meta.url).pathname),
+	test: path.join(new URL("../workflows/test/system-prompt.md", import.meta.url).pathname),
+	docs: path.join(new URL("../workflows/docs-agent/system-prompt.md", import.meta.url).pathname),
+	steelman: path.join(new URL("../workflows/adversarial/steel-man-system-prompt.md", import.meta.url).pathname),
+	contrarian: path.join(new URL("../workflows/adversarial/contrarian-system-prompt.md", import.meta.url).pathname),
+};
 
-/** Real model runner: local pi CLI (--mode json, no session) with the scout contract. */
+/** Backward-compatible alias for the scout prompt path. */
+export const SCOUT_SYSTEM_PROMPT_FILE = SPECIALIST_SYSTEM_PROMPT_FILES.scout;
+
+/** Load the system prompt for a specialist (workflows/<specialist>/system-prompt.md). */
+export function systemPromptFor(specialist: Specialist): string {
+	return readFileSync(SPECIALIST_SYSTEM_PROMPT_FILES[specialist], "utf8");
+}
+
+/** The fenced-JSON RESULT contract restated to the model, per specialist. */
+const RESULT_CONTRACT: Readonly<Record<Specialist, string[]>> = {
+	scout: [
+		'{ "objective": string, "verdict_stats": { "included": n, "summarized": n, "excluded": n, "unreachable": n },',
+		'  "verdicts": [{"candidate": string, "verdict": "include"|"exclude"|"include-with-summary", "why": string}],',
+		'  "findings": [{"claim": string, "citation": "path:line or URL+date", "confidence": "high"|"medium"|"low"|"single-source"}],',
+		'  "gaps": [string],',
+		'  "handoff": { "next_stage": "implement"|"verify"|"re-scout"|"report-to-user", "payload": string } }',
+	],
+	plan: [
+		'{ "steps": [{"id": string, "action": string, "tool_role": string, "depends_on": [string], "done_when": string, "binds": string}],',
+		'  "assumptions": [{"statement": string, "status": "unverified"|"verified"|"invalidated"}],',
+		'  "parallel_groups": [string[]], "single_points_of_failure": [string] }',
+	],
+	build: [
+		'{ "outcome": "green"|"unresolved", "changed_files": [string],',
+		'  "verification_evidence": [{"check": string, "exit": number}], "lanes_used": [string], "notes": string }',
+	],
+	test: [
+		'{ "verdicts": [{"testId": string, "class": "defect"|"flake"|"environment"|"pass"|"coverage_gap", "evidence": string}],',
+		'  "first_attempt_pass_rate": number, "attested": [string], "not_attested": [string], "gaps": [string] }',
+	],
+	docs: [
+		'{ "doc_updates": [{"path": string, "change": string, "evidence": [string], "risk": string}],',
+		'  "claims_index_delta": [object], "release_notes": string,',
+		'  "verdict": { "attested": [string], "stale_sections": [object] } }',
+	],
+	steelman: [
+		'{ "goal": string, "proposal": string, "premises": [{"claim": string, "basis": string}],',
+		'  "preempted_objections": [object], "open_problems": [object] }',
+		'OR { "structural_flag": { "reason": string } }',
+	],
+	contrarian: [
+		'{ "verdict": "APPROVED" }',
+		'OR { "verdict": "REJECTED", "fatal_flaws": [{"claim": string, "breaks": string, "why": string}] }',
+		'OR { "verdict": "PROTOCOL_INVALID", "protocol_invalid_reason": "naive-draft"|"contamination" }',
+	],
+};
+
+/** Restated RESULT contract lines for a specialist, used by PiRunner's prompt. */
+export function resultContractHint(specialist: Specialist): string[] {
+	return [...RESULT_CONTRACT[specialist]];
+}
+
+/** Real model runner: local pi CLI (--mode json, no session) with the specialist contract. */
 export class PiRunner implements SpecialistRunner {
-	private readonly opts: { model?: string; timeoutMs?: number };
-	constructor(opts: { model?: string; timeoutMs?: number } = {}) {
+	private readonly opts: { model?: string; timeoutMs?: number; systemPrompt?: string };
+	constructor(opts: { model?: string; timeoutMs?: number; systemPrompt?: string } = {}) {
 		this.opts = opts;
 	}
 	async run(dispatch: DispatchRecord): Promise<unknown> {
-		const systemPrompt = readFileSync(SCOUT_SYSTEM_PROMPT_FILE, "utf8");
-		// feed the contract + the dispatch as one prompt; scout reads the workspace itself
+		const systemPrompt = this.opts.systemPrompt ?? systemPromptFor(dispatch.specialist);
+		// feed the contract + the dispatch as one prompt; the specialist reads the workspace itself
 		const prompt = [
 			systemPrompt,
 			"",
-			"--- DISPATCH (you are the scout; objective only, no meta) ---",
+			`--- DISPATCH (you are the ${dispatch.specialist}; objective only, no meta) ---`,
 			`OBJECTIVE: ${dispatch.input.goal}`,
 			dispatch.input.constraints?.length ? `CONSTRAINTS: ${dispatch.input.constraints.join("; ")}` : "",
+			dispatch.input.ledger_refs?.length ? `LEDGER REFS: ${dispatch.input.ledger_refs.join("; ")}` : "",
+			dispatch.input.fatal_flaws?.length ? `FATAL FLAWS TO ADDRESS: ${dispatch.input.fatal_flaws.map((f) => f.claim).join("; ")}` : "",
 			"",
 			'OUTPUT REQUIREMENT: end your reply with one fenced ```json block — an object with EXACTLY',
 			"these fields (schema-validated, all required):",
-			"{ \"objective\": string, \"verdict_stats\": { \"included\": n, \"summarized\": n, \"excluded\": n, \"unreachable\": n },",
-			"  \"verdicts\": [{\"candidate\": string, \"verdict\": \"include\"|\"exclude\"|\"include-with-summary\", \"why\": string}],",
-			"  \"findings\": [{\"claim\": string, \"citation\": \"path:line or URL+date\", \"confidence\": \"high\"|\"medium\"|\"low\"|\"single-source\"}],",
-			"  \"gaps\": [string],",
-			"  \"handoff\": { \"next_stage\": \"implement\"|\"verify\"|\"re-scout\"|\"report-to-user\", \"payload\": string } }",
+			...resultContractHint(dispatch.specialist),
 		].filter(Boolean).join("\n");
 		const argv = ["pi", "--mode", "json", "--no-session", "--"];
 		if (this.opts.model) argv.splice(2, 0, "--provider", "ollama-cloud", "--model", this.opts.model);
