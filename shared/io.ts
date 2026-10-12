@@ -112,6 +112,25 @@ export interface SpecialistRunner {
 	run(dispatch: DispatchRecord): Promise<unknown>;
 }
 
+/** One tool-role's observed use within a dispatch (args digests stay in the trace, not here). */
+export interface ToolCallUse {
+	role: string;
+	/** Calls with this role; defaults to 1 when the runner reports a role without a count. */
+	count?: number;
+}
+
+/** Human decision returned by the optional `[approval]` stage (design.md Stage 2). */
+export interface ApprovalOutcome {
+	granted: boolean;
+	/** Seconds the APPROVAL_REQUEST waited for the developer; observed in `approval_wait_seconds`. */
+	waitSeconds: number;
+	/** What the grant covers; rides the log only, never a metric label. */
+	scope?: string;
+}
+
+/** The IO's `[approval]` seam: the developer answers an APPROVAL_REQUEST before a build. */
+export type ApprovalGate = (context: { task: TaskInput; goal: string; proposal: string }) => Promise<ApprovalOutcome>;
+
 export interface HarnessOptions {
 	ledger: LedgerStore;
 	emit: (e: HarnessEvent) => void;
@@ -134,6 +153,18 @@ export interface HarnessOptions {
 	 * do not model cost.
 	 */
 	usage?: (dispatch: DispatchRecord, result: unknown) => { prompt: number; completion: number } | undefined;
+	/**
+	 * Optional tool-call record: per dispatch, the tool roles the specialist actually invoked
+	 * (pi/Langfuse tool spans, the eval harness's TraceRecorder). Feeds `agent_tool_calls_total`
+	 * and, when the count exceeds the DISPATCH budget, `agent_budget_overrun_total`.
+	 */
+	toolCalls?: (dispatch: DispatchRecord, result: unknown) => readonly ToolCallUse[] | undefined;
+	/** Optional developer approval gate for the implement pipeline's `[approval]` stage. */
+	approval?: ApprovalGate;
+	/** Duration clock (ms) for heartbeat/budget signals; defaults to `Date.now`. */
+	nowMs?: () => number;
+	/** STATUS heartbeat interval while a dispatch is outstanding (EO-protocol §Heartbeat). */
+	heartbeatIntervalMs?: number;
 }
 
 /** Tool roles per specialist, from each specialist's own workflow.md inventory. */
@@ -193,6 +224,63 @@ export class IoHarness {
 		this.entryPoint = opts.entryPoint ?? "internal";
 	}
 
+	/** Duration clock, separate from the ISO `now` timestamp seam so tests can drive both. */
+	#nowMs(): number {
+		return this.opts.nowMs?.() ?? Date.now();
+	}
+
+	/** Append to the ledger AND emit `ledger_appended` (the `kind` rides the log value). */
+	#appendLedger(entry: Omit<LedgerEntry, "seq">): LedgerEntry {
+		const stamped = this.opts.ledger.append(entry);
+		this.logs.log({
+			ts: entry.ts,
+			event: "ledger_appended",
+			trace_id: entry.trace_id,
+			entry_point: this.entryPoint,
+			kind: entry.kind,
+			ref: entry.ref,
+			status: entry.status,
+		});
+		return stamped;
+	}
+
+	/**
+	 * Record a NAK frame seen by the IO. `side` names the protocol side whose frame was
+	 * malformed ("external" = EO → IO, "internal" = IO → specialist/EO); the NAK detail is
+	 * log-only because the metric carries only the bounded side label (plan §Trade-offs 5).
+	 */
+	recordNak(side: "external" | "internal"): void {
+		this.metrics.increment("agent_nak_total", { side });
+	}
+
+	/**
+	 * Observe one dispatch and derive the dispatch-path alert signals: the dispatch duration
+	 * histogram; a missed STATUS heartbeat (`heartbeat_missed` + `agent_heartbeat_age_seconds`)
+	 * when the call outlives the protocol heartbeat interval; and a per-dispatch
+	 * `agent_budget_overrun_total` when wall clock or tool calls exceed the DISPATCH budget.
+	 */
+	#observeDispatch(dispatch: DispatchRecord, stage: string, traceId: string, elapsedMs: number, toolTotal: number): void {
+		const seconds = elapsedMs / 1000;
+		this.metrics.observe("agent_dispatch_duration_seconds", { agent: dispatch.specialist, stage }, seconds);
+		if (elapsedMs > (this.opts.heartbeatIntervalMs ?? 30_000)) {
+			this.metrics.observe("agent_heartbeat_age_seconds", { agent: "internal" }, seconds);
+			const now = this.opts.now ?? (() => new Date().toISOString());
+			this.logs.log({
+				ts: now(),
+				event: "heartbeat_missed",
+				trace_id: traceId,
+				entry_point: this.entryPoint,
+				agent: "internal",
+				age_seconds: seconds,
+				dispatch_id: dispatch.dispatch_id,
+				specialist: dispatch.specialist,
+			});
+		}
+		if (toolTotal > dispatch.budget.tool_calls || seconds > dispatch.budget.seconds) {
+			this.metrics.increment("agent_budget_overrun_total", { agent: dispatch.specialist });
+		}
+	}
+
 	/** Run one task to settlement. Returns the terminal event payload. */
 	async runTask(task: TaskInput): Promise<Extract<HarnessEvent, { type: "completion" | "failure" }>["payload"]> {
 		const { ledger, emit, now = () => new Date().toISOString() } = this.opts;
@@ -220,10 +308,10 @@ export class IoHarness {
 			// a mounted spec is referenced, not verified. The SHA-match re-verify happens in
 			// the EO shim at provisioning (protocol §Session input artifacts); it is recorded
 			// here as an ASSUMPTION ledger entry.
-			ledger.append({ ts: now(), kind: "ASSUMPTION", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: `spec mounted at ${task.spec.path} sha=${task.spec.sha} (verify-only use; checklist applies to implement pipelines)`, status: "recorded" });
+			this.#appendLedger({ ts: now(), kind: "ASSUMPTION", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: `spec mounted at ${task.spec.path} sha=${task.spec.sha} (verify-only use; checklist applies to implement pipelines)`, status: "recorded" });
 		}
 
-		ledger.append({ ts: now(), kind: "TASK", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: task.goal, status: "intake" });
+		this.#appendLedger({ ts: now(), kind: "TASK", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: task.goal, status: "intake" });
 		this.logs.log({ ts: now(), event: "task_received", trace_id: trace.trace_id, entry_point: this.entryPoint, task_ref: task.task_ref, shape: task.shape ?? "research" });
 		emit({ type: "status", payload: { stage: "intake", lastEvent: `task ${task.task_ref} accepted` } });
 
@@ -256,7 +344,7 @@ export class IoHarness {
 		const trace = rootSpan(task.task_ref);
 		const attach = run.facts === undefined ? { attach: true, reason: "explicit gate invocation" } : decideGateAttach(run.facts);
 		if (!attach.attach) {
-			ledger.append({ ts: now(), kind: "DECISION", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: `adversarial gate skipped: ${attach.reason}`, status: "gate_skipped" });
+			this.#appendLedger({ ts: now(), kind: "DECISION", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: `adversarial gate skipped: ${attach.reason}`, status: "gate_skipped" });
 			this.logs.log({ ts: now(), event: "gate_skipped", trace_id: trace.trace_id, entry_point: this.entryPoint, gate: "adversarial", reason: attach.reason });
 			this.metrics.increment("agent_gate_skipped_total", { gate: "adversarial" });
 			return { attached: false, gate: "adversarial", attachReason: attach.reason };
@@ -285,10 +373,10 @@ export class IoHarness {
 				return result.ok ? result.value : {};
 			},
 			onIteration: (iteration, verdict, flaws) => {
-				ledger.append({ ts: now(), kind: "DECISION", ref: `gate-iter-${iteration}`, trace_id: task.task_ref, span_id: trace.span_id, summary: `adversarial iteration ${iteration}: ${verdict}${flaws.length ? ` — ${flaws.map((f) => f.claim).join("; ")}` : ""}`, status: verdict === "APPROVED" ? "gate-approved" : verdict === "REJECTED" ? "gate-rejected" : "gate-protocol-invalid" });
+				this.#appendLedger({ ts: now(), kind: "DECISION", ref: `gate-iter-${iteration}`, trace_id: task.task_ref, span_id: trace.span_id, summary: `adversarial iteration ${iteration}: ${verdict}${flaws.length ? ` — ${flaws.map((f) => f.claim).join("; ")}` : ""}`, status: verdict === "APPROVED" ? "gate-approved" : verdict === "REJECTED" ? "gate-rejected" : "gate-protocol-invalid" });
 			},
 			onStructuralFlag: (flag) => {
-				ledger.append({ ts: now(), kind: "DECISION", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: `steel-man structural flag: ${flag.reason}`, status: "gate-structural-flag" });
+				this.#appendLedger({ ts: now(), kind: "DECISION", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: `steel-man structural flag: ${flag.reason}`, status: "gate-structural-flag" });
 			},
 		});
 		this.metrics.increment("agent_loop_iterations_total", { agent: "io", gate: "adversarial" }, outcome.iterations);
@@ -338,6 +426,7 @@ export class IoHarness {
 	 * authoritative over build's own claims (Stage 5: test > build).
 	 */
 	async #runImplement(task: TaskInput, trace: TraceContext): Promise<Extract<HarnessEvent, { type: "completion" | "failure" }>["payload"]> {
+		const now = this.opts.now ?? (() => new Date().toISOString());
 		const scout = await this.#dispatchSpecialist({
 			specialist: "scout",
 			task,
@@ -387,6 +476,18 @@ export class IoHarness {
 		});
 		if (reviseState.failure) return this.#specialistFailure(task, trace, "plan", reviseState.failure, PLAN_FAILURE_RECOVERY);
 		if (gate.attached && gate.kind !== "approved") return this.#gateFailure(task, trace, gate);
+
+		// `[approval]` stage (design.md Stage 2): the developer answers before the build branch.
+		// The wait is observed regardless of outcome; a denial settles as a non-specialist failure.
+		if (this.opts.approval) {
+			const proposal = this.#planProposal(task.goal, planValue);
+			this.logs.log({ ts: now(), event: "approval_requested", trace_id: trace.trace_id, entry_point: this.entryPoint, gate: "approval", action: "build", scope: task.gate?.publishShaped ? "publish" : "sandbox" });
+			const decision = await this.opts.approval({ task, goal: task.goal, proposal });
+			const waitSeconds = Number.isFinite(decision.waitSeconds) ? Math.max(0, decision.waitSeconds) : 0;
+			this.metrics.observe("approval_wait_seconds", {}, waitSeconds);
+			this.logs.log({ ts: now(), event: decision.granted ? "approval_granted" : "approval_denied", trace_id: trace.trace_id, entry_point: this.entryPoint, gate: "approval", wait_seconds: waitSeconds, scope: decision.scope ?? "build" });
+			if (!decision.granted) return this.#approvalFailure(task, trace, decision.scope ?? "build", waitSeconds);
+		}
 
 		const build = await this.#dispatchSpecialist({
 			specialist: "build",
@@ -447,7 +548,7 @@ export class IoHarness {
 			attempts: 0,
 			recoveryOptions: ["clarify"],
 		};
-		ledger.append({ ts: now(), kind: "DECISION", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: `pipeline shape ${shape} is not a known shape`, status: "settled-failure" });
+		this.#appendLedger({ ts: now(), kind: "DECISION", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: `pipeline shape ${shape} is not a known shape`, status: "settled-failure" });
 		this.metrics.increment("agent_task_total", { agent: "io", outcome: "failure" });
 		emit({ type: "failure", payload });
 		return payload;
@@ -485,13 +586,16 @@ export class IoHarness {
 				reply_expected: "RESULT",
 			};
 			const wireCheck = checkDispatch(dispatch as unknown as Record<string, unknown>);
-			if (!wireCheck.ok) failures.push(`dispatch wire-invalid: ${wireCheck.errors.join("; ")}`);
-			ledger.append({ ts: now(), kind: "DISPATCH", ref: id, trace_id: params.task.task_ref, span_id: params.span.span_id, summary: dispatch.instruction, status: attempt === 1 ? "sent" : "resent-reformed" });
+			if (!wireCheck.ok) {
+				failures.push(`dispatch wire-invalid: ${wireCheck.errors.join("; ")}`);
+				this.recordNak("internal");
+			}
+			this.#appendLedger({ ts: now(), kind: "DISPATCH", ref: id, trace_id: params.task.task_ref, span_id: params.span.span_id, summary: dispatch.instruction, status: attempt === 1 ? "sent" : "resent-reformed" });
 			this.logs.log({ ts: now(), event: "dispatch_sent", trace_id: params.span.trace_id, entry_point: this.entryPoint, dispatch_id: id, specialist: params.specialist, shape: params.shape });
 			emit({ type: "status", payload: { stage: `dispatch:${id}`, lastEvent: `${params.specialist} dispatched (attempt ${attempt})` } });
 
 			const runner = this.opts.runners?.[params.specialist] ?? this.opts.runner;
-			const startedAt = Date.now();
+			const startedAt = this.#nowMs();
 			let raw: unknown;
 			try {
 				raw = await runner.run(dispatch);
@@ -501,19 +605,26 @@ export class IoHarness {
 					this.metrics.increment("agent_tokens_total", { agent: params.specialist, direction: "completion" }, usage.completion);
 				}
 			} catch (err) {
-				this.metrics.observe("agent_dispatch_duration_seconds", { agent: params.specialist, stage: params.shape }, (Date.now() - startedAt) / 1000);
+				this.#observeDispatch(dispatch, params.shape, params.span.trace_id, this.#nowMs() - startedAt, 0);
 				failures.push(`attempt ${attempt}: runner error: ${(err as Error).message}`);
 				continue;
 			}
-			this.metrics.observe("agent_dispatch_duration_seconds", { agent: params.specialist, stage: params.shape }, (Date.now() - startedAt) / 1000);
+			let toolTotal = 0;
+			for (const use of this.opts.toolCalls?.(dispatch, raw) ?? []) {
+				const count = use.count ?? 1;
+				toolTotal += count;
+				this.metrics.increment("agent_tool_calls_total", { agent: params.specialist, tool_role: use.role }, count);
+			}
+			this.#observeDispatch(dispatch, params.shape, params.span.trace_id, this.#nowMs() - startedAt, toolTotal);
 			const check = checkResult({ specialist: params.specialist, result: raw });
 			if (!check.ok) {
 				this.metrics.increment("agent_contract_violations_total", { specialist: params.specialist });
+				this.recordNak("internal");
 				this.logs.log({ ts: now(), event: "contract_violation", trace_id: params.span.trace_id, entry_point: this.entryPoint, dispatch_id: id, specialist: params.specialist, errors: check.errors.slice(0, 3) });
 				failures.push(`attempt ${attempt}: contract violation — ${check.errors.slice(0, 3).join("; ")}`);
 				continue;
 			}
-			ledger.append({ ts: now(), kind: "RESULT", ref: id, trace_id: params.task.task_ref, span_id: params.span.span_id, summary: `contract-valid ${params.specialist} RESULT (attempt ${attempt})`, status: "accepted" });
+			this.#appendLedger({ ts: now(), kind: "RESULT", ref: id, trace_id: params.task.task_ref, span_id: params.span.span_id, summary: `contract-valid ${params.specialist} RESULT (attempt ${attempt})`, status: "accepted" });
 			this.logs.log({ ts: now(), event: "result_received", trace_id: params.span.trace_id, entry_point: this.entryPoint, dispatch_id: id, specialist: params.specialist });
 			return { ok: true, value: raw, attempts: attempt };
 		}
@@ -566,7 +677,23 @@ export class IoHarness {
 			attempts: gate.iterations,
 			recoveryOptions,
 		};
-		ledger.append({ ts: now(), kind: "DECISION", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: `implement adversarial gate failed (${gate.kind})`, status: "settled-failure" });
+		this.#appendLedger({ ts: now(), kind: "DECISION", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: `implement adversarial gate failed (${gate.kind})`, status: "settled-failure" });
+		this.metrics.increment("agent_task_total", { agent: "io", outcome: "failure" });
+		emit({ type: "failure", payload });
+		return payload;
+	}
+
+	/** Terminal FAILURE for a denied human approval (design.md Stage 2 `[approval]`). */
+	#approvalFailure(task: TaskInput, trace: TraceContext, scope: string, waitSeconds: number): Extract<HarnessEvent, { type: "failure" }>["payload"] {
+		const { emit, now = () => new Date().toISOString() } = this.opts;
+		const payload = {
+			failingStep: "approval",
+			classification: "approval-denied",
+			evidence: [`developer denied approval for ${scope} after ${waitSeconds}s`],
+			attempts: 0,
+			recoveryOptions: ["revise-scope", "clarify"],
+		};
+		this.#appendLedger({ ts: now(), kind: "DECISION", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: `human approval denied for ${scope} (waited ${waitSeconds}s)`, status: "settled-failure" });
 		this.metrics.increment("agent_task_total", { agent: "io", outcome: "failure" });
 		emit({ type: "failure", payload });
 		return payload;
@@ -581,7 +708,7 @@ export class IoHarness {
 			attempts: result.failures.length,
 			recoveryOptions: recovery,
 		};
-		ledger.append({ ts: now(), kind: "DECISION", ref: result.dispatchId ?? task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: `${specialist} failed after ${result.failures.length} attempts: ${result.failures[0] ?? "no attempts"}`, status: "settled-failure" });
+		this.#appendLedger({ ts: now(), kind: "DECISION", ref: result.dispatchId ?? task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: `${specialist} failed after ${result.failures.length} attempts: ${result.failures[0] ?? "no attempts"}`, status: "settled-failure" });
 		this.metrics.increment("agent_retry_total", { agent: specialist, lane: task.shape ?? "research" }, Math.max(0, result.failures.length - 1));
 		this.metrics.increment("agent_task_total", { agent: "io", outcome: "failure" });
 		// Lane exhausted = no automated retry budget remains. Values ride the log (never a
@@ -603,7 +730,7 @@ export class IoHarness {
 
 	#settle(task: TaskInput, trace: TraceContext, payload: Extract<HarnessEvent, { type: "completion" }>["payload"]): void {
 		const { ledger, emit, now = () => new Date().toISOString() } = this.opts;
-		ledger.append({ ts: now(), kind: "DECISION", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: payload.summary, status: "settled-completion" });
+		this.#appendLedger({ ts: now(), kind: "DECISION", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: payload.summary, status: "settled-completion" });
 		this.metrics.increment("agent_task_total", { agent: "io", outcome: "completion" });
 		emit({ type: "completion", payload });
 	}

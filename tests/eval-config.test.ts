@@ -32,6 +32,11 @@ const CORE = [
 	"D8-quarantine-record",
 ];
 
+// Unique per-process workspace root: the shared `evals/results/_test-workspaces` path is
+// provisioned (rm + cp) by sibling test files running concurrently, which races the same
+// `<scenario>-<runner>` directory and intermittently loses files mid-run.
+const WORKSPACES = mkdtempSync(path.join(os.tmpdir(), "eval-ws-config-"));
+
 const PASS_RESULT = { verdicts: [], first_attempt_pass_rate: 1, attested: [], not_attested: [], gaps: [] };
 
 test("scenarios.yaml is a valid catalog with stable IDs and the spec core set", () => {
@@ -95,7 +100,7 @@ test("runScenario provisions a workspace, dispatches, traces, and scores", async
 		scenario: c3,
 		runner: "jest",
 		agent: async () => PASS_RESULT,
-		workspaceRoot: path.join(ROOT, "evals/results/_test-workspaces"),
+		workspaceRoot: WORKSPACES,
 	});
 	assert.ok(existsSync(path.join(result.workspace, "state.test.js")));
 	assert.equal(result.run.valid, true);
@@ -110,7 +115,7 @@ test("runEval one-scenario run is dry by default and reports skipped fixtures", 
 		agent: async () => PASS_RESULT,
 		writeResults: false,
 		updateBaseline: false,
-		workspaceRoot: path.join(ROOT, "evals/results/_test-workspaces"),
+		workspaceRoot: WORKSPACES,
 	});
 	assert.equal(run.summary.total, 1);
 	assert.equal(run.results.length, 1);
@@ -130,7 +135,7 @@ test("runEval persists a result line and a schema-valid tool trace", async () =>
 		writeResults: true,
 		updateBaseline: false,
 		resultsDir,
-		workspaceRoot: path.join(ROOT, "evals/results/_test-workspaces"),
+		workspaceRoot: WORKSPACES,
 	});
 	assert.equal(run.results.length, 1);
 	const date = new Date().toISOString().slice(0, 10);

@@ -23,6 +23,10 @@ import { RUNNERS, ToolRuntime } from "../evals/harness/tool-roles.mjs";
 import { TraceRecorder } from "../evals/harness/trace.mjs";
 import { loadScenarios, runScenario } from "../evals/harness/run.mjs";
 
+// Unique per-process workspace root: sibling test files provisioning the shared
+// `evals/results/_test-workspaces` path race the same `<scenario>-<runner>` directory.
+const WORKSPACES = mkdtempSync(path.join(os.tmpdir(), "eval-ws-candidate-"));
+
 function tmp(label) {
 	return mkdtempSync(path.join(os.tmpdir(), `eval-candidate-${label}-`));
 }
@@ -179,7 +183,7 @@ test("candidate adapter runs end to end through runScenario and the dispatcher",
 		scenario: c3,
 		runner: "jest",
 		agent: adapter,
-		workspaceRoot: path.join(ROOT, "evals/results/_test-workspaces"),
+		workspaceRoot: WORKSPACES,
 	});
 	assert.equal(result.run.valid, true, JSON.stringify(result.run.errors));
 	assert.ok(result.trace.some((r) => r.role === "workspace-read"));
