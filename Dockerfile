@@ -5,7 +5,7 @@ FROM ${SANDBOX_TOOLS_IMAGE} AS sandbox-tools
 
 FROM node:26-bookworm-slim
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends bash ca-certificates git nano pipx python3 python3-pip python3-venv ripgrep \
+  && apt-get install -y --no-install-recommends bash ca-certificates curl git nano pipx python3 python3-pip python3-venv ripgrep wget \
   && rm -rf /var/lib/apt/lists/*
 
 RUN npm install --global --ignore-scripts @earendil-works/pi-coding-agent@1.1.0
