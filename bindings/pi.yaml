@@ -1,0 +1,102 @@
+# pi harness bindings — this repository's runtime (bindings.md §Worked example).
+#
+# One file per harness; the EO validates it with `validateBindingDocument`
+# (shared/bindings.ts) before provisioning a sandbox and applies it at session creation
+# (README §The two roles — Sandbox lifecycle). Production of this artifact is a
+# developer-side spec change (PR procedure), so nothing is "installed" that is not
+# reviewable here.
+#
+# Roles bind to pi's tool set and to local commands. Gated roles are approver-gated at
+# provisioning (capability-not-dispatched), never by prompt text — bindings.md §2.
+# git roles carry `remote: null`: sandbox agents stage and commit locally but never touch
+# a remote (README §Version control conventions); push/PR/merge/tag belong to the EO.
+#
+# Per-role `timeout_s` may only tighten the EO-protocol §Timeouts defaults. Roles without
+# a protocol default intentionally omit `timeout_s` (the validator rejects one that is
+# present). Per-dispatch budgets stay at or below the 15-call / 300-s dispatch default.
+
+harness: pi
+
+agents:
+  scout:
+    # Read-only research worker (scout/workflow.md §Tool usage rules).
+    roles:
+      glob: { tool: find }
+      grep: { tool: grep }
+      read: { tool: read }
+      web-search: { tools: [ollama_web_search] }
+    budgets:
+      per_dispatch: { tool_calls: 15, seconds: 300 }
+
+  plan:
+    # Read-only planner; `dispatch` belongs to the IO in-suite (planning/workflow.md §Phase 4),
+    # so it is not provisioned to the sandbox-side plan specialist.
+    roles:
+      read: { tool: read }
+      glob: { tool: find }
+      grep: { tool: grep }
+      web-search: { tools: [ollama_web_search] }
+    budgets:
+      per_dispatch: { tool_calls: 15, seconds: 300 }
+
+  build:
+    roles:
+      run-build: { command: "npm run build", timeout_s: 900 }
+      run-check: { command: "npm test -- {name}", timeout_s: 300 }
+      read-log: { tool: read }
+      workspace-read: { tools: [find, grep, read] }
+      env-check: { command: "node -v && npm -v", timeout_s: 60 }
+      git-commit:
+        command: "git add {files} && git commit -m {message}"
+        env: { GIT_AUTHOR_NAME: "build-agent", GIT_AUTHOR_EMAIL: "build@suite.local" }
+        remote: null
+      install-deps: { command: "npm ci" }
+      workspace-edit: { tool: edit }
+      notify: { tool: message_internal }
+    gates:
+      install-deps: { mechanism: approval, scope: declared-manifest-versions }
+      workspace-edit: { mechanism: approval, scope: failing-step-blast-radius }
+    budgets:
+      per_dispatch: { tool_calls: 15, seconds: 300 }
+
+  test:
+    roles:
+      run-suite: { command: "npm test", timeout_s: 1800 }
+      run-test: { command: "npm test -- {name}", timeout_s: 300 }
+      read-log: { tool: read }
+      workspace-read: { tools: [find, grep, read] }
+      env-check: { command: "node -v && npm -v", timeout_s: 60 }
+      git-info: { command: "git log --oneline -20", remote: null }
+      test-edit: { tool: edit }
+      notify: { tool: message_internal }
+    gates:
+      test-edit: { mechanism: approval, scope: test-files-and-fixtures-only }
+    budgets:
+      per_dispatch: { tool_calls: 15, seconds: 300 }
+
+  docs:
+    roles:
+      run-suite: { command: "npm test", timeout_s: 1800 }
+      run-check: { command: "npm run docs:check", timeout_s: 300 }
+      read-log: { tool: read }
+      workspace-read: { tools: [find, grep, read] }
+      git-info: { command: "git log --oneline -20", remote: null }
+      docs-edit: { tool: edit }
+      notify: { tool: message_internal }
+    gates:
+      docs-edit: { mechanism: approval, scope: "docs/** paths; user-facing always reviewed" }
+    budgets:
+      per_dispatch: { tool_calls: 15, seconds: 300 }
+
+  steelman:
+    # Text-in/text-out gate agent — no workspace tools by contract
+    # (adversarial/design.md §Deployment model).
+    roles: {}
+    budgets:
+      per_dispatch: { tool_calls: 10, seconds: 120 }
+
+  contrarian:
+    # Text-in/text-out; near-zero tools; runs on both EO-side (spec gate) and IO-side.
+    roles: {}
+    budgets:
+      per_dispatch: { tool_calls: 10, seconds: 120 }

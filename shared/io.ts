@@ -128,6 +128,12 @@ export interface HarnessOptions {
 	logs?: LogSink;
 	/** entry point stamped on every log record (defaults to "internal") */
 	entryPoint?: string;
+	/**
+	 * Optional harness usage record (pi/Langfuse token accounting): per specialist call,
+	 * returns prompt/completion tokens that feed `agent_tokens_total`. Absent in tests that
+	 * do not model cost.
+	 */
+	usage?: (dispatch: DispatchRecord, result: unknown) => { prompt: number; completion: number } | undefined;
 }
 
 /** Tool roles per specialist, from each specialist's own workflow.md inventory. */
@@ -489,6 +495,11 @@ export class IoHarness {
 			let raw: unknown;
 			try {
 				raw = await runner.run(dispatch);
+				const usage = this.opts.usage?.(dispatch, raw);
+				if (usage !== undefined) {
+					this.metrics.increment("agent_tokens_total", { agent: params.specialist, direction: "prompt" }, usage.prompt);
+					this.metrics.increment("agent_tokens_total", { agent: params.specialist, direction: "completion" }, usage.completion);
+				}
 			} catch (err) {
 				this.metrics.observe("agent_dispatch_duration_seconds", { agent: params.specialist, stage: params.shape }, (Date.now() - startedAt) / 1000);
 				failures.push(`attempt ${attempt}: runner error: ${(err as Error).message}`);
@@ -573,6 +584,19 @@ export class IoHarness {
 		ledger.append({ ts: now(), kind: "DECISION", ref: result.dispatchId ?? task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: `${specialist} failed after ${result.failures.length} attempts: ${result.failures[0] ?? "no attempts"}`, status: "settled-failure" });
 		this.metrics.increment("agent_retry_total", { agent: specialist, lane: task.shape ?? "research" }, Math.max(0, result.failures.length - 1));
 		this.metrics.increment("agent_task_total", { agent: "io", outcome: "failure" });
+		// Lane exhausted = no automated retry budget remains. Values ride the log (never a
+		// metric label) so alerting can distinguish recoverable from unrecoverable failures.
+		this.logs.log({
+			ts: now(),
+			event: "lane_exhausted",
+			trace_id: trace.trace_id,
+			entry_point: this.entryPoint,
+			specialist,
+			lane: task.shape ?? "research",
+			key: result.dispatchId ?? task.task_ref,
+			attempts: result.failures.length,
+			recovery_options: recovery,
+		});
 		emit({ type: "failure", payload });
 		return payload;
 	}
