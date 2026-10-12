@@ -85,11 +85,50 @@ test("double failure: research shape cannot degrade without scout — FAILURE wi
 	assert.ok(store.entries().at(-1)!.status.startsWith("settled-failure"));
 });
 
-test("unimplemented shapes fail honestly with recoveryOptions instead of improvising", async () => {
-	const { h } = harness(new ScriptedRunner(validResult));
-	const payload = await h.runTask({ task_ref: "t-impl-1", goal: "build it", shape: "implement" }) as { classification: string; recoveryOptions: string[] };
-	assert.equal(payload.classification, "pipeline-unimplemented");
-	assert.deepEqual(payload.recoveryOptions, ["revise-task: research"]);
+test("implement shape: scout -> plan -> gate -> build -> test runs end to end", async () => {
+	const seen: string[] = [];
+	const runner = new ScriptedRunner((d) => {
+		seen.push(d.specialist);
+		switch (d.specialist) {
+			case "scout": return validResult;
+			case "plan": return {
+				steps: [{ id: "S1", action: "Implement the endpoint", tool_role: "workspace-edit", done_when: "endpoint responds", binds: "$endpoint" }],
+				assumptions: [{ statement: "the endpoint is public", status: "unverified" }],
+				parallel_groups: [],
+				single_points_of_failure: ["S1"],
+			};
+			case "steelman": return {
+				goal: d.input.goal,
+				proposal: "strengthened endpoint plan",
+				premises: [{ claim: "the endpoint is reachable", basis: "assumed" }],
+				preempted_objections: [],
+				open_problems: [],
+			};
+			case "contrarian": return { verdict: "APPROVED" };
+			case "build": return {
+				outcome: "green",
+				changed_files: ["src/server.js"],
+				verification_evidence: [{ check: "npm test -- server", exit: 0 }],
+				lanes_used: [],
+				notes: "endpoint added",
+			};
+			case "test": return {
+				verdicts: [{ testId: "suite/server", class: "pass", evidence: "exited 0" }],
+				first_attempt_pass_rate: 1,
+				attested: ["layer 1 shell"],
+				not_attested: [],
+				gaps: [],
+			};
+			default: return {};
+		}
+	});
+	const { h, store, events } = harness(runner);
+	const payload = await h.runTask({ task_ref: "t-impl-1", goal: "build the endpoint", shape: "implement" }) as { summary: string; artifactRefs: string[] };
+	assert.match(payload.summary, /implement pipeline settled/);
+	assert.deepEqual(payload.artifactRefs, ["src/server.js"]);
+	assert.deepEqual(seen, ["scout", "plan", "steelman", "contrarian", "build", "test"]);
+	assert.ok(store.entries().at(-1)!.status.startsWith("settled-completion"));
+	assert.equal(events.at(-1)!.type, "completion");
 });
 
 test("scout tool shim: real read-only roles execute against the fixture workspace", () => {

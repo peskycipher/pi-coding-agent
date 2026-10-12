@@ -1,13 +1,12 @@
 // IO harness — the reference implementation of workflows/orchestrator-internal
 // (design.md lifecycle stages 1–6 mechanics; protocol.md dispatch/RESULT/ledger).
 //
-// Implemented specialists: scout (research), test (verify-only), docs (docs-drift and
-// release-notes). The plan/build-dependent `implement` shape is deliberately still
-// unimplemented and fails honestly with recoveryOptions rather than improvising
-// (design.md §Execution authority) — tests/io-harness.test.ts pins that invariant.
-// The adversarial gate (steel-man/contrarian) is available as `runGate` for EO-side spec
-// gates and future IO plan gates; it is not auto-attached to `implement` because that
-// pipeline is not built yet.
+// Implemented shapes: research (scout), verify-only (test), docs-drift and release-notes
+// (docs), and implement — scout → plan → adversarial gate → build → test (design.md Stage 2
+// canonical shape; adversarial/design.md §Where it plugs into the suite). The adversarial
+// gate (steel-man/contrarian) is attached between plan and build via `runGate`; on REJECTED
+// the plan specialist is re-dispatched with the fatal flaws as its revision owner. A truly
+// unknown shape still fails honestly with recoveryOptions rather than improvising.
 //
 // Scope: intake (ledger idempotency, spec gate) → delegation planning → dispatch loop
 // (one outstanding dispatch per specialist) → contract validation (shared/wire.ts)
@@ -143,8 +142,12 @@ export const SPECIALIST_TOOLS: Readonly<Record<Specialist, string[]>> = {
 };
 
 const RESEARCH_FAILURE_RECOVERY = ["re-dispatch:scout", "clarify"];
+const PLAN_FAILURE_RECOVERY = ["re-dispatch:plan", "clarify"];
+const BUILD_FAILURE_RECOVERY = ["re-dispatch:build", "clarify"];
 const TEST_FAILURE_RECOVERY = ["re-dispatch:test", "clarify"];
 const DOCS_FAILURE_RECOVERY = ["re-dispatch:docs", "clarify"];
+const GATE_FAILURE_RECOVERY = ["revise-plan", "clarify"];
+const GATE_PROTOCOL_RECOVERY = ["re-dispatch:gate", "clarify"];
 
 type DispatchOutcome =
 	| { ok: true; value: unknown; attempts: number }
@@ -162,6 +165,12 @@ export interface GateRunInput {
 	/** when provided, the mechanical attach criteria decide; when omitted, the gate attaches */
 	facts?: GateFacts;
 	iterationCap?: number;
+	/**
+	 * Revision owner seam (adversarial/design.md §Loop ownership): on REJECTED, re-dispatch
+	 * the proposal's owner (the plan specialist on plans) and return the revised proposal
+	 * text. When omitted the steel-man repairs the named flaws on the next iteration.
+	 */
+	revise?: (flaws: FatalFlaw[], iteration: number) => Promise<string>;
 }
 
 export class IoHarness {
@@ -201,10 +210,10 @@ export class IoHarness {
 
 		// spec gate (IO design §Stage 1 Spec intake) — only when a spec is attached
 		if (task.spec?.sha) {
-			// increment 1: the shared-checklist verification is IO-pipeline work for the
-			// implement path; for other shapes a mounted spec is referenced not verified.
-			// The SHA-match re-verify happens in the EO shim at provisioning (protocol
-			// §Session input artifacts); recorded here as an ASSUMPTION ledger entry.
+			// The Gate-3 spec completeness checklist is a separate IO-pipeline increment; here
+			// a mounted spec is referenced, not verified. The SHA-match re-verify happens in
+			// the EO shim at provisioning (protocol §Session input artifacts); it is recorded
+			// here as an ASSUMPTION ledger entry.
 			ledger.append({ ts: now(), kind: "ASSUMPTION", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: `spec mounted at ${task.spec.path} sha=${task.spec.sha} (verify-only use; checklist applies to implement pipelines)`, status: "recorded" });
 		}
 
@@ -224,6 +233,7 @@ export class IoHarness {
 			case "release-notes":
 				return this.#runDocs(task, trace, "release-notes");
 			case "implement":
+				return this.#runImplement(task, trace);
 			default:
 				return this.#unimplemented(task, trace, shape);
 		}
@@ -252,6 +262,7 @@ export class IoHarness {
 			constraints: run.constraints,
 			proposal: run.proposal,
 			iterationCap: run.iterationCap,
+			revise: run.revise,
 			runner: async (specialist, input) => {
 				const result = await this.#dispatchSpecialist({
 					specialist,
@@ -313,6 +324,96 @@ export class IoHarness {
 		return payload;
 	}
 
+	/**
+	 * `implement`: scout → plan → adversarial gate → build → test (design.md Stage 2).
+	 * scout grounds the plan — the degrade rule forbids an implement pipeline that skips
+	 * it (design.md Stage 3); the gate sits between plan and the build branch and is
+	 * skipped (visibly) only when the caller's GateFacts meet no attach criterion. test is
+	 * authoritative over build's own claims (Stage 5: test > build).
+	 */
+	async #runImplement(task: TaskInput, trace: TraceContext): Promise<Extract<HarnessEvent, { type: "completion" | "failure" }>["payload"]> {
+		const scout = await this.#dispatchSpecialist({
+			specialist: "scout",
+			task,
+			shape: "implement",
+			instruction: "Research the objective to ground the implementation plan; return findings per the scout RESULT contract",
+			input: { goal: task.goal, constraints: task.constraints },
+			span: childSpan(trace),
+		});
+		if (!scout.ok) return this.#specialistFailure(task, trace, "scout", scout, RESEARCH_FAILURE_RECOVERY);
+
+		const plan = await this.#dispatchSpecialist({
+			specialist: "plan",
+			task,
+			shape: "implement",
+			instruction: "Decompose the objective into a dependency-tracked step DAG per the plan RESULT contract",
+			input: { goal: task.goal, constraints: task.constraints, scout_findings: scout.value },
+			span: childSpan(trace),
+		});
+		if (!plan.ok) return this.#specialistFailure(task, trace, "plan", plan, PLAN_FAILURE_RECOVERY);
+		let planValue: unknown = plan.value;
+
+		// Gate stage. On REJECTED the proposal's owner is the plan specialist, so the revise
+		// seam re-dispatches `plan` with the fatal flaws in input.fatal_flaws; a revision that
+		// cannot produce a contract-valid plan is a plan failure, not a gate failure.
+		const reviseState: { failure: Extract<DispatchOutcome, { ok: false }> | null } = { failure: null };
+		const gate = await this.runGate(task, {
+			goal: task.goal,
+			constraints: task.constraints,
+			proposal: this.#planProposal(task.goal, planValue),
+			facts: task.gate,
+			revise: async (flaws) => {
+				const revised = await this.#dispatchSpecialist({
+					specialist: "plan",
+					task,
+					shape: "implement",
+					instruction: "Revise the plan to address ONLY the named fatal flaws; return the full plan RESULT contract",
+					input: { goal: task.goal, constraints: task.constraints, scout_findings: scout.value, fatal_flaws: flaws },
+					span: childSpan(trace),
+				});
+				if (!revised.ok) {
+					reviseState.failure = revised;
+					return this.#planProposal(task.goal, planValue);
+				}
+				planValue = revised.value;
+				return this.#planProposal(task.goal, planValue);
+			},
+		});
+		if (reviseState.failure) return this.#specialistFailure(task, trace, "plan", reviseState.failure, PLAN_FAILURE_RECOVERY);
+		if (gate.attached && gate.kind !== "approved") return this.#gateFailure(task, trace, gate);
+
+		const build = await this.#dispatchSpecialist({
+			specialist: "build",
+			task,
+			shape: "implement",
+			instruction: "Execute the approved plan; return outcome, changed files, lanes and verification evidence per the build RESULT contract",
+			input: { goal: task.goal, constraints: task.constraints, plan: planValue, scout_findings: scout.value, ...(task.target ? { target: task.target } : {}) },
+			span: childSpan(trace),
+		});
+		if (!build.ok) return this.#specialistFailure(task, trace, "build", build, BUILD_FAILURE_RECOVERY);
+
+		const verified = await this.#dispatchSpecialist({
+			specialist: "test",
+			task,
+			shape: "implement",
+			instruction: "Verify the build against the objective; classify each test and return the verdict block per the test RESULT contract",
+			input: { goal: task.goal, constraints: task.constraints, build: build.value, ...(task.target ? { target: task.target } : {}) },
+			span: childSpan(trace),
+		});
+		if (!verified.ok) return this.#specialistFailure(task, trace, "test", verified, TEST_FAILURE_RECOVERY);
+
+		const buildResult = build.value as { changed_files?: unknown[] };
+		const testResult = verified.value as { not_attested?: unknown[]; gaps?: unknown[] };
+		const payload = {
+			summary: `goal: ${task.goal} — implement pipeline settled: ${gate.attached ? `plan gate-approved (iteration ${gate.iterations})` : "plan gate-skipped"}, build+test contract-valid`,
+			verdictAttenuations: [...(testResult.not_attested ?? []), ...(testResult.gaps ?? [])].map(String),
+			artifactRefs: (buildResult.changed_files ?? []).map(String),
+			ledgerRef: `task:${task.task_ref}`,
+		};
+		this.#settle(task, trace, payload);
+		return payload;
+	}
+
 	async #runDocs(task: TaskInput, trace: TraceContext, kind: "docs-drift" | "release-notes"): Promise<Extract<HarnessEvent, { type: "completion" | "failure" }>["payload"]> {
 		const result = await this.#dispatchSpecialist({
 			specialist: "docs",
@@ -336,11 +437,11 @@ export class IoHarness {
 		const payload = {
 			failingStep: "planning",
 			classification: "pipeline-unimplemented",
-			evidence: [`shape "${shape}" requires specialists not implemented in this harness increment (roster implemented: scout, test, docs; adversarial gate available via runGate)`],
+			evidence: [`unknown pipeline shape "${shape}" (known shapes: research, implement, verify-only, docs-drift, release-notes)`],
 			attempts: 0,
-			recoveryOptions: ["revise-task: research"],
+			recoveryOptions: ["clarify"],
 		};
-		ledger.append({ ts: now(), kind: "DECISION", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: `pipeline shape ${shape} unimplemented in this increment`, status: "settled-failure" });
+		ledger.append({ ts: now(), kind: "DECISION", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: `pipeline shape ${shape} is not a known shape`, status: "settled-failure" });
 		this.metrics.increment("agent_task_total", { agent: "io", outcome: "failure" });
 		emit({ type: "failure", payload });
 		return payload;
@@ -406,6 +507,58 @@ export class IoHarness {
 			return { ok: true, value: raw, attempts: attempt };
 		}
 		return { ok: false, failures, dispatchId: lastDispatchId };
+	}
+
+	/** Serialize a plan RESULT into the proposal text the adversarial gate strengthens. */
+	#planProposal(goal: string, plan: unknown): string {
+		const p = (plan ?? {}) as {
+			steps?: { id?: unknown; action?: unknown; done_when?: unknown; binds?: unknown; depends_on?: unknown[] }[];
+			assumptions?: { statement?: unknown; status?: unknown }[];
+			parallel_groups?: unknown[];
+			single_points_of_failure?: unknown[];
+		};
+		const steps = Array.isArray(p.steps) ? p.steps : [];
+		const lines = [`Goal: ${goal}`, "Steps:"];
+		for (const step of steps) {
+			const binds = step.binds === undefined || step.binds === null || step.binds === "" ? "" : ` | binds: ${String(step.binds)}`;
+			const deps = Array.isArray(step.depends_on) && step.depends_on.length > 0 ? ` | depends: ${step.depends_on.map(String).join(", ")}` : "";
+			lines.push(`  ${String(step.id ?? "?")}: ${String(step.action ?? "")} | done when: ${String(step.done_when ?? "")}${binds}${deps}`);
+		}
+		const assumptions = Array.isArray(p.assumptions) ? p.assumptions : [];
+		if (assumptions.length > 0) lines.push(`Assumptions: ${assumptions.map((a) => `${String(a.statement ?? "")} [${String(a.status ?? "")}]`).join("; ")}`);
+		const groups = Array.isArray(p.parallel_groups) ? p.parallel_groups : [];
+		if (groups.length > 0) lines.push(`Parallel groups: ${groups.map((g) => JSON.stringify(g)).join("; ")}`);
+		const spof = Array.isArray(p.single_points_of_failure) ? p.single_points_of_failure : [];
+		if (spof.length > 0) lines.push(`Single points of failure: ${spof.map(String).join(", ")}`);
+		return lines.join("\n");
+	}
+
+	/** Terminal FAILURE for an attached gate that did not approve (capped / flag / protocol). */
+	#gateFailure(task: TaskInput, trace: TraceContext, gate: Exclude<Extract<GateRunResult, { attached: true }>, { kind: "approved" }>): Extract<HarnessEvent, { type: "failure" }>["payload"] {
+		const { ledger, emit, now = () => new Date().toISOString() } = this.opts;
+		let evidence: string;
+		let recoveryOptions: string[];
+		if (gate.kind === "capped") {
+			evidence = `adversarial gate hit the iteration cap after ${gate.iterations} iterations; unaddressed fatal flaws: ${gate.flaws.map((f) => f.claim).join("; ") || "none recorded"}`;
+			recoveryOptions = GATE_FAILURE_RECOVERY;
+		} else if (gate.kind === "structural-flag") {
+			evidence = `adversarial gate stopped on a steel-man structural flag after ${gate.iterations} iterations: ${gate.flag.reason}`;
+			recoveryOptions = GATE_FAILURE_RECOVERY;
+		} else {
+			evidence = `adversarial gate could not produce a contract-valid verdict after ${gate.iterations} iterations: ${gate.reason}`;
+			recoveryOptions = GATE_PROTOCOL_RECOVERY;
+		}
+		const payload = {
+			failingStep: "gate",
+			classification: "gate-failed",
+			evidence: [evidence],
+			attempts: gate.iterations,
+			recoveryOptions,
+		};
+		ledger.append({ ts: now(), kind: "DECISION", ref: task.task_ref, trace_id: task.task_ref, span_id: trace.span_id, summary: `implement adversarial gate failed (${gate.kind})`, status: "settled-failure" });
+		this.metrics.increment("agent_task_total", { agent: "io", outcome: "failure" });
+		emit({ type: "failure", payload });
+		return payload;
 	}
 
 	#specialistFailure(task: TaskInput, trace: TraceContext, specialist: Specialist, result: Extract<DispatchOutcome, { ok: false }>, recovery: string[]): Extract<HarnessEvent, { type: "failure" }>["payload"] {
