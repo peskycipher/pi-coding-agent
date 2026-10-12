@@ -3,8 +3,7 @@
 Design for a two-tier multi-agent coding suite: an External Orchestrator (EO) on the
 developer's machine supervises an Internal Orchestrator (IO) inside a sandbox, which
 drives read-only/context-isolated specialists over a JSON bus with a persisted ledger.
-**Status: specification only** — no component is implemented in this repo's runtime yet
-(the runtime remains a single-task sandbox); see Adoption status below.
+**Status: partially adopted** — core runtime implemented (two-tier orchestration in `shared/`, pi sandbox runtime in `src/`), observability emitters, adversarial gate, implement pipeline, and eval suites; see Adoption status below. Open items: exporter/alert wiring (plan §5–7), fixture coverage, candidate adapters.
 
 ## Architecture
 
@@ -66,6 +65,32 @@ Key invariants (see the protocol docs for the full set):
 | Eval suite spec | `test-eval-spec.md` | spec'd — candidates: test + docs agents (harness/fixtures unimplemented) |
 | Docs agent | `docs-agent/design.md` → `system-prompt.md` | **adopted** (implementation sequence in design) |
 | Adversarial gate | `adversarial/design.md` → steel-man/contrarian prompts | **adopted** (conditional attach — criteria in design) |
+
+## Software stack
+
+The suite runtime, per component (canonical — tool versions below are minimums; bump via
+`package.json` and this table together):
+
+| Layer | Choice | Where it shows up |
+|---|---|---|
+| Compute | **Cloudflare Workers** — one **Durable Object** per agent sandbox (`PiSandbox extends CodingAgentSandbox`, `cloudflare:workers`) | `src/index.ts`, `shared/sandbox.ts` |
+| Sandbox SDK | **`@cloudflare/sandbox` 1.0.0** — `Files`, container lifecycle, `TaskOutcome` | `shared/sandbox.ts`, `shared/handler.ts` |
+| Deploy + types | **Wrangler 4** (`wrangler deploy`, `wrangler types` → `worker-configuration.d.ts`) | `package.json` scripts |
+| Agent harness | **pi (coding-agent harness)** run as `pi --mode json --no-session --provider ollama-cloud` inside each sandbox; JSONL event stream → `PiEvent` | `src/index.ts`, `shared/pi-events.ts` |
+| Models | **Ollama Cloud** (max plan, 10-request shared concurrency budget); default `deepseek-v4.1-flash` | `src/index.ts`, `~/.pi/agent/ollama_cloud.json` |
+| Language | **TypeScript 5.9**, ESM (`"type": "module"`), native `tsc --noEmit` type-check | tsconfig, `npm run check` |
+| Wire contracts | **JSON Schema via ajv 8** — `envelope.schema.json`, `results.schema.json`; schema failure = specialist failure | `workflows/schemas/`, `shared/wire.ts` |
+| Runtime validation | **zod 4** — pi-event parsing (`shared/pi-events.ts`), handler input validation (`shared/handler.ts`) | `shared/` |
+| YAML | **js-yaml 3** — bindings + alerts artifacts (`bindings/pi.yaml`, `alerts.yaml`) | `shared/bindings.ts`, `workflows/observability/` |
+| Tests | **node:test** (`node --test tests/`) — no Jest at runtime; Jest/pytest appear only *inside eval fixtures* as the agents-under-test | `package.json`, `evals/fixtures/` |
+| Eval suite | plain **Node ESM scripts** — `evals/harness`, `scorer`, `rubric`, `judge` behind `eval:calibrate/core/full/rubric` | `evals/` |
+| Dev/orchestration plane (EO-side, not deployed) | **Node 26**, **Docker** docker-runner for local clones, `cfa` CLI, herdr panes | this skill / `research/cloudflare-sandboxes.md` |
+
+Constraints this stack fixes for the spec: specialists never get network egress beyond the
+harness allowlist (`ollama.com`, `api.typesafe.ai`, `github.com`); the model budget is shared
+(10 concurrent Ollama Cloud requests across every live stream — keep ≤ 7 live cfa agents while
+an orchestrator works); all sandbox agents run `--no-session`, so **the ledger is the only
+durable state** (EO side persists it), never a pi session file.
 
 ## Conventions
 
