@@ -1,0 +1,35 @@
+# Eval model matrix (spec: workflows/test-eval-spec.md §6/A2, §8 Q1).
+#
+# One cheap tier + one strong tier, fixed IDs. Swapping a tier is a PR with a re-baselined
+# matrix noted. The IDs below are placeholders pending the owner decision in §8 Q1; the
+# candidate under test is the prompt/workflow text, so the model matrix only varies the
+# host model.
+
+matrix:
+  cheap:
+    id: "owner-to-fill-cheap"
+    provider: "owner-to-fill"
+    note: "cost ceiling tier; classification strength is expected to hold even here"
+  strong:
+    id: "owner-to-fill-strong"
+    provider: "owner-to-fill"
+    note: "used for the judge and for high-value docs register scoring"
+
+judge:
+  tier: strong
+  prompt_version: judge-prompt-v1
+  endpoint_env: EVAL_JUDGE_URL
+  key_env: EVAL_JUDGE_API_KEY
+  runs_per_report: 2
+  disagreement_threshold: 1
+  healthy_mean: 3.5
+  regression_drop: 1.0
+
+candidates:
+  # candidate = prompt/workflow text, identified by content hash in result lines
+  - id: test-agent
+    prompt: workflows/test/system-prompt.md
+    workflow: workflows/test/workflow.md
+  - id: docs-agent
+    prompt: workflows/docs-agent/system-prompt.md
+    design: workflows/docs-agent/design.md

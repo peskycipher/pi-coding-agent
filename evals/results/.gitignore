@@ -1,0 +1,5 @@
+# Eval run outputs are ephemeral (spec §6): one JSONL per scenario per run under
+# evals/results/<date>/<model>.jsonl. Baseline trend files are committed separately under
+# evals/baselines/.
+*
+!.gitignore

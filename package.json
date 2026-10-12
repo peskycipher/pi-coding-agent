@@ -8,7 +8,10 @@
     "types": "wrangler types worker-configuration.d.ts --include-runtime=false",
     "check": "npm run types && tsc --noEmit",
     "test": "node --test tests/",
-    "eval:calibrate": "node evals/fixtures/generate.mjs"
+    "eval:calibrate": "node evals/fixtures/generate.mjs",
+    "eval:core": "node evals/harness/run.mjs core",
+    "eval:full": "node evals/harness/run.mjs full",
+    "eval:rubric": "node evals/scorer/rubric-cli.mjs"
   },
   "dependencies": {
     "@cloudflare/sandbox": "1.0.0",
@@ -18,6 +21,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261010.1",
     "jest": "^29.7.0",
+    "js-yaml": "^3.14.1",
     "typescript": "^5.9.3",
     "wrangler": "^4.149.0"
   },

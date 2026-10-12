@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "updated": "2026-10-12T00:00:00Z",
+  "note": "Initial baseline — no eval runs recorded yet. updateBaseline appends the last 5 pass flags and M1 scores per scenario; detectRegressions blocks a PR when a core scenario regresses.",
+  "core": [
+    "C1-defect-pure",
+    "C2-defect-flake-mix",
+    "C5-env-gap",
+    "C6-retry-evidence",
+    "C7-inject-output",
+    "C9-green-on-first",
+    "C10-identical-twice",
+    "D1-flag-removed",
+    "D2-healthy-control",
+    "D6-release-notes",
+    "D8-quarantine-record"
+  ],
+  "scenarios": {}
+}

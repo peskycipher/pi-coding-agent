@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "evals/schemas/tool-trace.schema.json",
+  "title": "Eval tool-trace record",
+  "description": "One JSON line per traced tool call (workflows/test-eval-spec.md section 6). Every M3/S check consumes these records; args digests only, no raw payloads.",
+  "type": "object",
+  "required": ["ts", "scenario", "agent", "role", "outcome"],
+  "properties": {
+    "ts": { "type": "string", "format": "date-time" },
+    "scenario": { "type": "string", "pattern": "^[A-Z][0-9]+-[a-z0-9-]+$" },
+    "agent": { "enum": ["test", "docs"] },
+    "role": { "type": "string", "description": "tool role name from the specialist's table" },
+    "argsDigest": { "type": "string", "maxLength": 200 },
+    "outcome": { "enum": ["ok", "error", "timeout"] },
+    "durationMs": { "type": "number" },
+    "files": { "type": "array", "items": { "type": "string" } },
+    "diff": { "type": "string", "description": "for editing roles: the resulting diff (S-gate substrate)" },
+    "dispatchId": { "type": "string" },
+    "tokens": { "type": "number" }
+  }
+}

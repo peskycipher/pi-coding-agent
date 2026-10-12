@@ -1,0 +1,76 @@
+# Static rubric for the docs-agent spec documents (spec: workflows/test-eval-spec.md §5).
+#
+# Same mechanics as the test rubric: whitespace-normalized, case-insensitive presence in
+# at least one source. Rationale lines say why each rule must survive.
+
+- id: citation-or-drop
+  description: Every documentation change cites its evidence; an unproven "outdated" hunch is dropped.
+  rationale: Confident wrongness is the docs agent's highest-risk failure; citations make each claim traceable and reviewable.
+  pattern: "citation-per-change"
+  sources: [workflows/docs-agent/design.md]
+
+- id: docs-path-only-edits
+  description: The agent edits docs paths only; code, tests, configs, and CI stay read-only.
+  rationale: The docs agent reports drift; deciding whether code or doc is wrong belongs to a human or the orchestrator.
+  pattern: "docs-path edits only"
+  sources: [workflows/docs-agent/system-prompt.md]
+
+- id: no-doc-masking
+  description: Deleting or silently reinterpreting a section to disappear drift is forbidden.
+  rationale: A disappeared section removes the reader's evidence that something is stale.
+  pattern: "masking is forbidden"
+  sources: [workflows/docs-agent/system-prompt.md]
+
+- id: unowned-quarantine-rejected
+  description: Every stale-section banner carries date, reason, evidence anchor, and owner/review target.
+  rationale: An unowned quarantine banner is an invisible risk; the record keeps it visible until repaired.
+  pattern: "no unowned quarantine"
+  sources: [workflows/docs-agent/system-prompt.md]
+
+- id: user-facing-ships-only-through-review
+  description: User-facing documentation ships only through developer review.
+  rationale: LLM-drafted user text reads confidently even when wrong; review is the gate that catches it.
+  pattern: "ships only through review"
+  sources: [workflows/docs-agent/system-prompt.md]
+
+- id: release-notes-state-verified-issues
+  description: Release notes state known issues from test verdicts as verified-issues, not speculation.
+  rationale: Release notes gate the tag; unverified claims shipped there mislead every user.
+  pattern: "verified-issues"
+  sources: [workflows/docs-agent/system-prompt.md]
+
+- id: decline-uncited-draft
+  description: When no ledger entry or anchor exists, the agent declines instead of drafting.
+  rationale: Drafting from imagination produces authoritative-but-unverified text — the exact failure the design flags.
+  pattern: "draft from imagination"
+  sources: [workflows/docs-agent/system-prompt.md]
+
+- id: claims-index-responsibilities
+  description: The claims index is maintained with structured, anchored claims.
+  rationale: The index is the system's value and its main liability; its responsibilities must stay specified.
+  pattern: "claims index"
+  sources: [workflows/docs-agent/design.md, workflows/docs-agent/system-prompt.md]
+
+- id: nightly-sweep-provenance
+  description: The nightly sweep is EO-scheduled and documented as such.
+  rationale: Provenance prevents the sweep from drifting into an unscheduled, unattributable write path.
+  pattern: "nightly sweep"
+  sources: [workflows/docs-agent/design.md]
+
+- id: review-table-classes
+  description: The review table defines user-facing, developer-reference, and cosmetic classes.
+  rationale: Different change classes carry different trust requirements; collapsing them breaks the approval gate.
+  pattern: "cosmetic"
+  sources: [workflows/docs-agent/design.md]
+
+- id: docstring-divergence-escalation
+  description: Docstring-vs-docs divergence is flagged, not silently adjudicated in either direction.
+  rationale: Two sources of truth double drift; silently choosing one hides the conflict.
+  pattern: "flagged as divergence"
+  sources: [workflows/docs-agent/system-prompt.md]
+
+- id: consistency-map-present
+  description: A consistency map ties the prompt to design.md.
+  rationale: The map is the drift check that keeps prompt and design in lockstep.
+  pattern: "consistency map"
+  sources: [workflows/docs-agent/system-prompt.md]

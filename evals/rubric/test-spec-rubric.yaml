@@ -1,0 +1,101 @@
+# Static rubric for the test-agent spec documents (spec: workflows/test-eval-spec.md §5).
+#
+# Each rule is mechanically locatable in workflows/test/*. A deleted rule fails the PR:
+# the checker normalizes whitespace and requires the `pattern` (case-insensitive) in at
+# least one of `sources`. `rationale` records why the rule must survive.
+
+- id: retry-evidence-rule
+  description: Retries collect evidence and never erase a failure; first-attempt outcome survives.
+  rationale: Retry-until-green hides reliability loss — a pass on retry proves nondeterminism, not correctness of the first execution.
+  pattern: "retries are evidence collection, never verdict erasure"
+  sources: [workflows/test/workflow.md]
+
+- id: no-masking-rule
+  description: Timeout lengthening, assertion deletion/weakening, skipping, and tolerance broadening are forbidden as repairs.
+  rationale: A mask hides a real failure and is a quarantine candidate, never a fix.
+  pattern: "no masking fixes"
+  sources: [workflows/test/system-prompt.md]
+
+- id: no-product-code-rule
+  description: The agent edits test code, fixtures, and annotations only — never product code.
+  rationale: Verification loses its value the moment the verifier patches the product it is verifying.
+  pattern: "you never modify product code"
+  sources: [workflows/test/system-prompt.md]
+
+- id: unowned-quarantine-veto
+  description: Every quarantine proposal carries owner, reason, evidence, scope, suspected risk, and expiry.
+  rationale: An unowned quarantine is deletion with extra syntax — the risk must stay visible and expiring.
+  pattern: "unowned quarantine"
+  sources: [workflows/test/workflow.md, workflows/test/system-prompt.md]
+
+- id: verdict-block-always-required
+  description: A verdict block is emitted on every run, including all-green runs.
+  rationale: Green has scope; attaching the verdict block prevents ordinary "PASS" reports from hiding the attestation boundary.
+  pattern: "emit the verdict block"
+  sources: [workflows/test/system-prompt.md]
+
+- id: classification-first-match-wins
+  description: Outcome classification is first-match-wins across defect/flake/environment/pass.
+  rationale: Ambiguous evidence must not let a later, softer class override a deterministic signal.
+  pattern: "first match wins"
+  sources: [workflows/test/workflow.md, workflows/test/system-prompt.md]
+
+- id: discriminating-rerun-for-ambiguity
+  description: Ambiguous cases run one discriminating experiment and record both observations.
+  rationale: A "probably flake" verdict without the discriminating run is a guess, and misdiagnosis is the expensive failure.
+  pattern: "discriminating experiment"
+  sources: [workflows/test/workflow.md, workflows/test/system-prompt.md]
+
+- id: stable-test-identity
+  description: The run ledger is keyed by a stable test identity that survives renames.
+  rationale: Order-of-appearance identity loses flake history exactly when it matters.
+  pattern: "stable test identity"
+  sources: [workflows/test/workflow.md, workflows/test/system-prompt.md]
+
+- id: git-info-role
+  description: git-info is the read-only role for history/blame and flake history.
+  rationale: Flake history and stable identity are prerequisite evidence for correct classification.
+  pattern: "git-info"
+  sources: [workflows/test/workflow.md, workflows/test/system-prompt.md]
+
+- id: budget-defaults-documented
+  description: Default budgets are documented (retry, repair attempt, diagnostic reads).
+  rationale: A budget that is not written down cannot be enforced or tuned.
+  pattern: "default budgets"
+  sources: [workflows/test/workflow.md]
+
+- id: stop-conditions-enumerated
+  description: Stop conditions are enumerated and reachable.
+  rationale: Without explicit stops the loop cannot terminate deterministically under budget.
+  pattern: "stop conditions"
+  sources: [workflows/test/workflow.md]
+
+- id: evidence-or-verbatim-language
+  description: No verdict without evidence; every classification cites its observation.
+  rationale: The agent's entire value is evidence-grade verdicts a reviewer need not re-run.
+  pattern: "no verdict without evidence"
+  sources: [workflows/test/system-prompt.md]
+
+- id: masking-forbidden-edge-case
+  description: The "make this test pass" edge case restates the masking is forbidden rule.
+  rationale: The single most likely instruction to induce a safety violation needs an explicit refusal path.
+  pattern: "masking is forbidden"
+  sources: [workflows/test/system-prompt.md]
+
+- id: identical-twice-is-defect
+  description: A test that fails identically twice is a defect, not a flake.
+  rationale: The identical-twice edge case prevents flake history from masking a deterministic code regression.
+  pattern: "fails identically twice"
+  sources: [workflows/test/system-prompt.md]
+
+- id: green-has-scope-edge-case
+  description: A green first attempt still emits the verdict block — green has scope.
+  rationale: Attestation boundaries must be explicit on the success path too, not only on failure.
+  pattern: "green has scope"
+  sources: [workflows/test/system-prompt.md]
+
+- id: consistency-map-present
+  description: A consistency map ties this prompt to workflow.md.
+  rationale: The map is the drift check that keeps prompt and operational loop in lockstep.
+  pattern: "consistency map"
+  sources: [workflows/test/system-prompt.md]
