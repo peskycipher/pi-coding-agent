@@ -10,6 +10,8 @@
 
 import { readFileSync } from "node:fs";
 
+import { DEFAULT_JUDGE_CALIBRATION, normalizeJudgeCalibration } from "./calibration.mjs";
+
 export const JUDGE_PROMPT_VERSION = "judge-prompt-v1";
 
 const PROMPT_MD = readFileSync(new URL("./prompt.md", import.meta.url), "utf8");
@@ -70,8 +72,9 @@ function parseReason(text) {
 
 /**
  * Score one artifact. `callModel({messages, model, temperature, dimension, rotation})`
- * returns the raw model text. Runs twice per dimension with rotation; disagreement > 1
- * point flags the dimension. Returns a tracked result — it never gates.
+ * returns the raw model text. Runs `calibration.rotation.offsets` times per dimension (the
+ * spec default is two, order-swapped); a spread greater than `thresholds.disagreement`
+ * flags the dimension. Returns a tracked result — it never gates.
  */
 export async function runJudge({
 	reportText,
@@ -80,21 +83,24 @@ export async function runJudge({
 	callModel,
 	model = "judge",
 	dimensions,
+	calibration = DEFAULT_JUDGE_CALIBRATION,
 } = {}) {
 	if (typeof callModel !== "function") throw new Error("runJudge requires a callModel function");
+	const cal = normalizeJudgeCalibration(calibration);
 	const dims = dimensions ?? (agent === "docs" ? DOCS_DIMENSIONS : TEST_DIMENSIONS);
 	const results = {};
 	const flags = [];
 	for (const dimension of dims) {
 		const runs = [];
-		for (const rotation of [0, 1]) {
+		for (const rotation of cal.rotation.offsets) {
 			const messages = buildJudgeMessages({ dimension, reportText, manifestContext, rotation });
 			const raw = await callModel({ messages, model, temperature: 0, dimension, rotation });
 			runs.push({ rotation, score: parseScore(raw), reason: parseReason(raw) });
 		}
 		const values = runs.map((r) => r.score).filter((v) => typeof v === "number");
 		const mean = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
-		const flagged = runs.length === 2 && runs.every((r) => typeof r.score === "number") && Math.abs(runs[0].score - runs[1].score) > 1;
+		const spread = values.length >= 2 ? Math.max(...values) - Math.min(...values) : 0;
+		const flagged = values.length === runs.length && spread > cal.thresholds.disagreement;
 		if (flagged) flags.push(dimension);
 		results[dimension] = { runs, mean, flagged };
 	}
@@ -108,8 +114,9 @@ export async function runJudge({
 		agent,
 		dimensions: results,
 		mean: overall,
-		healthy: overall === null ? null : overall >= 3.5,
+		healthy: overall === null ? null : overall >= cal.thresholds.healthyMean,
 		flags,
+		calibration: cal,
 	};
 }
 

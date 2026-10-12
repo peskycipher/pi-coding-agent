@@ -9,6 +9,11 @@
 // candidate agent through the tool roles with a trace recorder, validates the RESULT, and
 // scores it mechanically. Result lines land in evals/results/<date>/<model>.jsonl; the
 // committed baseline is only rewritten with --update-baseline.
+//
+// Candidate selection: by default the real prompt/model candidates from
+// evals/config/models.yaml run through evals/harness/agents/candidate.mjs (a model caller
+// must be configured — EVAL_MODEL_URL or EVAL_MODEL_CLI). `--smoke` keeps the offline
+// machinery self-test, and `--agent <file>` loads an explicit adapter.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -22,6 +27,8 @@ import { ToolRuntime, provisionWorkspace } from "./tool-roles.mjs";
 import { scoreRun } from "../scorer/mechanical.mjs";
 import { aggregateSuite, detectRegressions, toResultLine, updateBaseline } from "../scorer/aggregate.mjs";
 import { resolveJudgeCaller, runJudge } from "../judge/judge.mjs";
+import { judgeCalibrationFrom } from "../judge/calibration.mjs";
+import { createCandidateSuiteAdapter, resolveCandidateCaller } from "./agents/candidate.mjs";
 
 export const ROOT = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 export const SCENARIOS_FILE = path.join(ROOT, "evals/config/scenarios.yaml");
@@ -177,10 +184,11 @@ export async function runEval({
 	// judge (full mode only, when a caller is configured/injected) — tracked, never gating
 	if (callModel || (mode === "full" && resolveJudgeCaller())) {
 		const caller = callModel ?? resolveJudgeCaller();
+		const calibration = judgeCalibrationFrom(loadYamlFile(path.join(root, "evals/config/models.yaml")));
 		for (const r of ran) {
 			const reportText = JSON.stringify(r.run.notifications ?? []);
 			try {
-				r.judge = await runJudge({ reportText, manifestContext: r.scenario, agent: r.scenario.agent, callModel: caller, model });
+				r.judge = await runJudge({ reportText, manifestContext: r.scenario, agent: r.scenario.agent, callModel: caller, model, calibration });
 			} catch (err) {
 				r.judge = { error: err.message };
 			}
@@ -219,22 +227,48 @@ async function main(argv = process.argv.slice(2)) {
 	const mode = argv[0] ?? "core";
 	const flag = (name, fallback) => {
 		const i = argv.indexOf(`--${name}`);
-		return i === -1 ? fallback : argv[i + 1];
+		return i === -1 ? fallback : argv[i + 1] ?? fallback;
 	};
 	const id = mode === "one" ? argv[1] : undefined;
-	let agent = (await import("./agents/smoke.mjs")).run;
 	const agentPath = flag("agent");
+	const useSmoke = argv.includes("--smoke") || process.env.EVAL_AGENT === "smoke";
+	const models = loadYamlFile(path.join(ROOT, "evals/config/models.yaml"));
+	const tier = flag("model");
+	// `--model cheap|strong` names a matrix tier; any other value is a literal model id.
+	const resolveModel = (fallback) => (tier ? (models.matrix?.[tier]?.id ?? tier) : fallback);
+
+	let agent;
+	let candidate;
+	let model;
 	if (agentPath) {
 		const mod = await import(pathToFileURL(path.resolve(agentPath)).href);
 		agent = mod.default ?? mod.run;
+		candidate = flag("candidate", path.basename(agentPath));
+		model = resolveModel("agent");
+	} else if (useSmoke) {
+		agent = (await import("./agents/smoke.mjs")).run;
+		candidate = "smoke";
+		model = tier ?? "smoke";
+	} else {
+		const caller = resolveCandidateCaller({ env: process.env });
+		if (!caller) {
+			throw new Error(
+				"no candidate model caller configured: set EVAL_MODEL_URL (HTTP) or EVAL_MODEL_CLI (e.g. pi), " +
+					"or pass --smoke to run the offline machinery self-test (which is not an evaluation result).",
+			);
+		}
+		model = resolveModel(models.matrix?.cheap?.id ?? "candidate");
+		agent = createCandidateSuiteAdapter({ root: ROOT, callModel: caller, model });
+		candidate = flag("candidate", "matrix-prompts");
 	}
+
 	const result = await runEval({
 		mode: id ? "one" : mode,
 		id,
 		agent,
 		runner: flag("runner"),
-		model: flag("model", "smoke"),
-		candidate: flag("candidate", agentPath ? path.basename(agentPath) : "smoke"),
+		model,
+		candidate,
 		workspaceRoot: flag("workspaces", path.join(os.tmpdir(), "eval-workspaces")),
 		writeResults: !argv.includes("--no-results"),
 		updateBaseline: argv.includes("--update-baseline"),
@@ -251,5 +285,10 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-	main().then((code) => process.exit(code));
+	main()
+		.then((code) => process.exit(code))
+		.catch((err) => {
+			console.error(`eval runner error: ${err.message}`);
+			process.exit(2);
+		});
 }

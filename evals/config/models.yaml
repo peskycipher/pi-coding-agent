@@ -1,16 +1,19 @@
 # Eval model matrix (spec: workflows/test-eval-spec.md §6/A2, §8 Q1).
 #
 # One cheap tier + one strong tier, fixed IDs. Swapping a tier is a PR with a re-baselined
-# matrix noted. The IDs below are placeholders pending the owner decision in §8 Q1; the
-# candidate under test is the prompt/workflow text, so the model matrix only varies the
-# host model.
+# matrix noted. The candidate under test is the prompt/workflow text, so the model matrix
+# only varies the host model.
 
+# TODO(spec §8 Q1 — owner decision pending): the concrete cheap/strong model IDs and
+# providers are not chosen yet. Keep the `owner-to-fill-*` placeholders; do not invent names.
 matrix:
   cheap:
+    # TODO(spec §8 Q1): replace the placeholder id/provider once the owner selects the tier.
     id: "owner-to-fill-cheap"
     provider: "owner-to-fill"
     note: "cost ceiling tier; classification strength is expected to hold even here"
   strong:
+    # TODO(spec §8 Q1): replace the placeholder id/provider once the owner selects the tier.
     id: "owner-to-fill-strong"
     provider: "owner-to-fill"
     note: "used for the judge and for high-value docs register scoring"
@@ -20,16 +23,31 @@ judge:
   prompt_version: judge-prompt-v1
   endpoint_env: EVAL_JUDGE_URL
   key_env: EVAL_JUDGE_API_KEY
-  runs_per_report: 2
-  disagreement_threshold: 1
-  healthy_mean: 3.5
-  regression_drop: 1.0
+  # TODO(spec §8 Q2 — owner decision pending): judge model identity + budget. Until the
+  # owner names one, the judge runs on the `strong` matrix tier above; no id is invented here.
+  #
+  # Calibration defaults (spec §4.2/§6): the thresholds live once under `calibration`; the
+  # flat fields below alias them for readers/tests written before the calibration block.
+  runs_per_report: &judge_runs 2
+  disagreement_threshold: &judge_disagreement 1
+  healthy_mean: &judge_healthy 3.5
+  regression_drop: &judge_drop 1.0
+  calibration:
+    rotation:
+      runs_per_report: *judge_runs
+      offsets: [0, 1]
+    thresholds:
+      disagreement: *judge_disagreement
+      healthy_mean: *judge_healthy
+      regression_drop: *judge_drop
 
 candidates:
   # candidate = prompt/workflow text, identified by content hash in result lines
   - id: test-agent
+    agent: test
     prompt: workflows/test/system-prompt.md
     workflow: workflows/test/workflow.md
   - id: docs-agent
+    agent: docs
     prompt: workflows/docs-agent/system-prompt.md
     design: workflows/docs-agent/design.md
