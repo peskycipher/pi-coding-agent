@@ -1,7 +1,7 @@
 import { SandboxFileError, SandboxProtocolError } from "@cloudflare/sandbox";
 import { z } from "zod";
 
-import type { CodingAgentEnv } from "./sandbox";
+import { SandboxNotClonedError, TaskRunningError, type CodingAgentEnv } from "./sandbox";
 
 const SANDBOX_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 // The prompt is one argument of the agent's command, and Linux rejects an argument of 128 KiB or
@@ -45,6 +45,11 @@ export default {
         return Response.json(result, { status: result.exitCode === 0 ? 200 : 502 });
       }
       if (resource === "task" && request.method === "POST") {
+        // Reject oversized bodies before reading them into memory.
+        const contentLength = Number(request.headers.get("content-length") ?? "0");
+        if (contentLength > MAX_PROMPT_BYTES) {
+          return new Response("Prompt must be smaller than 128 KiB", { status: 413 });
+        }
         const prompt = await request.text();
         if (prompt.trim() === "") return new Response("Prompt is required", { status: 400 });
         if (new TextEncoder().encode(prompt).byteLength > MAX_PROMPT_BYTES) {
@@ -71,6 +76,12 @@ export default {
       }
       return new Response("Method not allowed", { status: 405 });
     } catch (cause) {
+      if (cause instanceof TaskRunningError) {
+        return new Response(cause.message, { status: 409 });
+      }
+      if (cause instanceof SandboxNotClonedError) {
+        return new Response(cause.message, { status: 409 });
+      }
       console.error({
         event: "sandbox.request.failed",
         sandboxName,

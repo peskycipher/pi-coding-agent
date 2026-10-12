@@ -1,0 +1,829 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "workflows/schemas/results.schema.json",
+  "title": "Internal suite schemas — dispatch records, RESULT contracts, ledger entries",
+  "description": "Root: the RESULT payload consumed by the IO for one dispatch, tagged by specialist — the specialist tag binds the payload to exactly one contract, so a payload shaped for another specialist fails validation.",
+  "$defs": {
+    "dispatch": {
+      "title": "DISPATCH record (also the blackboard entry)",
+      "type": "object",
+      "required": [
+        "dispatch_id",
+        "specialist",
+        "task_ref",
+        "instruction",
+        "input",
+        "requires_tools",
+        "budget",
+        "reply_expected"
+      ],
+      "properties": {
+        "dispatch_id": {
+          "type": "string",
+          "pattern": "^d-"
+        },
+        "specialist": {
+          "enum": [
+            "scout",
+            "plan",
+            "build",
+            "test",
+            "docs",
+            "steelman",
+            "contrarian"
+          ]
+        },
+        "task_ref": {
+          "type": "string"
+        },
+        "instruction": {
+          "type": "string",
+          "minLength": 1,
+          "description": "bounded, one-step purpose"
+        },
+        "input": {
+          "type": "object",
+          "required": [
+            "goal"
+          ],
+          "properties": {
+            "goal": {
+              "type": "string"
+            },
+            "constraints": {
+              "type": "array"
+            },
+            "ledger_refs": {
+              "type": "array"
+            }
+          }
+        },
+        "requires_tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "budget": {
+          "type": "object",
+          "required": [
+            "tool_calls",
+            "seconds"
+          ],
+          "properties": {
+            "tool_calls": {
+              "type": "number",
+              "minimum": 0
+            },
+            "seconds": {
+              "type": "number",
+              "minimum": 1
+            }
+          }
+        },
+        "reply_expected": {
+          "const": "RESULT"
+        }
+      },
+      "additionalProperties": false,
+      "description": "specialist must be in the requires-tools profile check at dispatch (IO design §Sandbox constraints). docs/steelman/contrarian are on-adoption specialists (workflows/docs-agent/design.md, workflows/adversarial/design.md)."
+    },
+    "ledgerEntry": {
+      "title": "Ledger entry (append-only, IO writes, EO persists + stamps seq)",
+      "type": "object",
+      "required": [
+        "ts",
+        "kind",
+        "ref",
+        "trace_id",
+        "summary",
+        "status"
+      ],
+      "properties": {
+        "seq": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "allocated by the EO at persistence time; IO submits with null (protocol §Ledger custody)"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "kind": {
+          "enum": [
+            "TASK",
+            "ASSUMPTION",
+            "DISPATCH",
+            "RESULT",
+            "DECISION",
+            "REVISION",
+            "ARTIFACT_EXPORT"
+          ]
+        },
+        "ref": {
+          "type": "string"
+        },
+        "trace_id": {
+          "type": "string"
+        },
+        "span_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "description": "compressed — never transcripts"
+        },
+        "status": {
+          "type": "string"
+        }
+      }
+    },
+    "scoutResult": {
+      "required": [
+        "verdicts",
+        "findings",
+        "gaps",
+        "handoff"
+      ],
+      "properties": {
+        "verdicts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "verdict"
+            ],
+            "properties": {
+              "verdict": {
+                "enum": [
+                  "include",
+                  "exclude",
+                  "include-with-summary"
+                ]
+              }
+            }
+          }
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "claim",
+              "citation",
+              "confidence"
+            ],
+            "properties": {
+              "claim": {
+                "type": "string"
+              },
+              "citation": {
+                "type": "string",
+                "minLength": 1,
+                "description": "path:line or URL+date — empty means the finding was dropped upstream"
+              },
+              "confidence": {
+                "enum": [
+                  "high",
+                  "medium",
+                  "low",
+                  "single-source"
+                ]
+              },
+              "phase": {
+                "enum": [
+                  "final",
+                  "conflict"
+                ]
+              }
+            }
+          }
+        },
+        "verdict_stats": {
+          "type": "object",
+          "description": "scout's own run stats (scout/workflow.md handoff contract); optional to the IO — the IO validates the required fields row first",
+          "required": [
+            "included",
+            "summarized",
+            "excluded",
+            "unreachable"
+          ],
+          "properties": {
+            "included": {
+              "type": "integer"
+            },
+            "summarized": {
+              "type": "integer"
+            },
+            "excluded": {
+              "type": "integer"
+            },
+            "unreachable": {
+              "type": "integer"
+            }
+          }
+        },
+        "gaps": {
+          "type": "array"
+        },
+        "handoff": {
+          "type": "object",
+          "required": [
+            "next_stage",
+            "payload"
+          ],
+          "properties": {
+            "next_stage": {
+              "enum": [
+                "implement",
+                "verify",
+                "re-scout",
+                "report-to-user"
+              ]
+            },
+            "payload": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "planResult": {
+      "required": [
+        "steps",
+        "assumptions",
+        "parallel_groups",
+        "single_points_of_failure"
+      ],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "action",
+              "done_when"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string"
+              },
+              "tool_role": {
+                "type": "string",
+                "description": "tool role the step needs (planner PLAN format 'needs: <tool_role>')"
+              },
+              "depends_on": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "done_when": {
+                "type": "string",
+                "minLength": 1
+              },
+              "binds": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "statement",
+              "status"
+            ],
+            "properties": {
+              "statement": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "unverified",
+                  "verified",
+                  "invalidated"
+                ]
+              }
+            }
+          }
+        },
+        "parallel_groups": {
+          "type": "array"
+        },
+        "single_points_of_failure": {
+          "type": "array",
+          "description": "step ids whose failure invalidates others' preconditions — explicit per the planner prompt"
+        }
+      }
+    },
+    "buildResult": {
+      "required": [
+        "outcome",
+        "changed_files",
+        "verification_evidence",
+        "lanes_used",
+        "notes"
+      ],
+      "properties": {
+        "outcome": {
+          "enum": [
+            "green",
+            "unresolved"
+          ]
+        },
+        "changed_files": {
+          "type": "array"
+        },
+        "verification_evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "check",
+              "exit"
+            ],
+            "properties": {
+              "check": {
+                "type": "string"
+              },
+              "exit": {
+                "type": "number"
+              }
+            }
+          },
+          "minItems": 1
+        },
+        "lanes_used": {
+          "type": "array"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "description": "verification_evidence requires >=1 entry: a build report without an executed check is a contract violation (Stage 5 requires the exact-check re-run)."
+    },
+    "testResult": {
+      "required": [
+        "verdicts",
+        "first_attempt_pass_rate",
+        "attested",
+        "not_attested",
+        "gaps"
+      ],
+      "properties": {
+        "verdicts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "testId",
+              "class",
+              "evidence"
+            ],
+            "properties": {
+              "testId": {
+                "type": "string"
+              },
+              "class": {
+                "enum": [
+                  "defect",
+                  "flake",
+                  "environment",
+                  "pass",
+                  "coverage_gap"
+                ]
+              },
+              "evidence": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "first_attempt_pass_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "attested": {
+          "type": "array"
+        },
+        "not_attested": {
+          "type": "array"
+        },
+        "gaps": {
+          "type": "array"
+        }
+      },
+      "description": "verdict block required even on all-green runs (test workflow Stage 7: green has scope)."
+    },
+    "docsResult": {
+      "required": [
+        "doc_updates",
+        "claims_index_delta",
+        "verdict"
+      ],
+      "properties": {
+        "doc_updates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "change",
+              "evidence",
+              "risk"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "change": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "array",
+                "minItems": 1,
+                "description": "citation-or-drop: no evidence, no change"
+              },
+              "risk": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "claims_index_delta": {
+          "type": "array"
+        },
+        "release_notes": {
+          "type": "string"
+        },
+        "verdict": {
+          "type": "object",
+          "required": [
+            "attested",
+            "stale_sections"
+          ],
+          "properties": {
+            "attested": {
+              "type": "array"
+            },
+            "stale_sections": {
+              "type": "array"
+            }
+          }
+        }
+      },
+      "$comment": "adopted specialist — see workflows/docs-agent/design.md"
+    },
+    "steelManResult": {
+      "oneOf": [
+        {
+          "title": "STEEL-MAN RESULT",
+          "required": [
+            "goal",
+            "proposal",
+            "premises",
+            "preempted_objections",
+            "open_problems"
+          ],
+          "properties": {
+            "goal": {
+              "type": "string"
+            },
+            "proposal": {
+              "type": "string"
+            },
+            "premises": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": [
+                  "claim",
+                  "basis"
+                ],
+                "properties": {
+                  "claim": {
+                    "type": "string"
+                  },
+                  "basis": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "preempted_objections": {
+              "type": "array"
+            },
+            "open_problems": {
+              "type": "array"
+            }
+          }
+        },
+        {
+          "title": "STRUCTURAL FLAG (replaces the RESULT; adversarial design trade-off 2)",
+          "required": [
+            "structural_flag"
+          ],
+          "properties": {
+            "structural_flag": {
+              "type": "object",
+              "required": [
+                "reason"
+              ],
+              "properties": {
+                "reason": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "open_problems must surface unanswerable objections — hiding them from the contrarian corrupts the pipeline (steel-man hard constraint 4).",
+      "$comment": "adopted gate-stage agent (text-only, conditional attach) — see workflows/adversarial/design.md"
+    },
+    "contrarianResult": {
+      "required": [
+        "verdict"
+      ],
+      "properties": {
+        "verdict": {
+          "enum": [
+            "APPROVED",
+            "REJECTED",
+            "PROTOCOL_INVALID"
+          ]
+        },
+        "fatal_flaws": {
+          "type": "array",
+          "description": "required when verdict is REJECTED; ranked, falsifiable-claim bar enforced (constraint 2: fatal means fatal)",
+          "items": {
+            "type": "object",
+            "required": [
+              "claim",
+              "breaks",
+              "why"
+            ],
+            "properties": {
+              "claim": {
+                "type": "string"
+              },
+              "breaks": {
+                "type": "string"
+              },
+              "why": {
+                "type": "string"
+              }
+            }
+          },
+          "minItems": 0
+        },
+        "protocol_invalid_reason": {
+          "type": "string",
+          "description": "required when verdict is PROTOCOL_INVALID",
+          "enum": [
+            "naive-draft",
+            "contamination"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "verdict": {
+                "const": "REJECTED"
+              }
+            },
+            "required": [
+              "verdict"
+            ]
+          },
+          "then": {
+            "required": [
+              "fatal_flaws"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "verdict": {
+                "const": "PROTOCOL_INVALID"
+              }
+            },
+            "required": [
+              "verdict"
+            ]
+          },
+          "then": {
+            "required": [
+              "protocol_invalid_reason"
+            ],
+            "properties": {
+              "protocol_invalid_reason": {
+                "enum": [
+                  "naive-draft",
+                  "contamination"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "verdict": {
+                "const": "APPROVED"
+              }
+            },
+            "required": [
+              "verdict"
+            ]
+          },
+          "then": {
+            "properties": {
+              "fatal_flaws": {
+                "maxItems": 0
+              },
+              "protocol_invalid_reason": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "$comment": "adopted gate-stage agent (text-only, conditional attach) — see workflows/adversarial/design.md"
+    }
+  },
+  "type": "object",
+  "required": [
+    "specialist",
+    "result"
+  ],
+  "properties": {
+    "specialist": {
+      "enum": [
+        "scout",
+        "plan",
+        "build",
+        "test",
+        "docs",
+        "steelman",
+        "contrarian"
+      ]
+    },
+    "result": true
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "specialist": {
+            "const": "scout"
+          }
+        },
+        "required": [
+          "specialist"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/scoutResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "specialist": {
+            "const": "plan"
+          }
+        },
+        "required": [
+          "specialist"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/planResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "specialist": {
+            "const": "build"
+          }
+        },
+        "required": [
+          "specialist"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/buildResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "specialist": {
+            "const": "test"
+          }
+        },
+        "required": [
+          "specialist"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/testResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "specialist": {
+            "const": "docs"
+          }
+        },
+        "required": [
+          "specialist"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/docsResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "specialist": {
+            "const": "steelman"
+          }
+        },
+        "required": [
+          "specialist"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/steelManResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "specialist": {
+            "const": "contrarian"
+          }
+        },
+        "required": [
+          "specialist"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/contrarianResult"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+test("test A seeds shared state", () => { require("fs").writeFileSync("__state.sentinel", "1"); expect(true).toBe(true); });

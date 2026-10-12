@@ -5,6 +5,9 @@ import type { CodingAgentEnv } from "./sandbox";
 const OLLAMA_HOST = "ollama.com";
 const TYPESAFE_HOST = "api.typesafe.ai";
 const GITHUB_HOST = "github.com";
+// Public PyPI package hosts (pip/pipx/uv). No credentials apply — package installs fetch public
+// packages, and the container must never see a key.
+const PYPI_HOSTS = ["pypi.org", "files.pythonhosted.org"];
 
 // Guest HTTP on port 80 and HTTPS on port 443 reach this entrypoint; other ports have no route.
 // Credentials stay in the Worker.
@@ -29,12 +32,14 @@ export class Outbound extends WorkerEntrypoint<CodingAgentEnv> {
       headers.set("x-api-key", this.env.TYPESAFE_API_KEY);
       return fetch(new Request(request, { headers }));
     }
+    if (PYPI_HOSTS.includes(url.hostname)) return fetch(request);
     if (url.hostname === GITHUB_HOST) {
       if (this.env.GITHUB_TOKEN === undefined) return fetch(request);
       const headers = new Headers(request.headers);
       headers.set("authorization", `Basic ${btoa(`x-access-token:${this.env.GITHUB_TOKEN}`)}`);
       return fetch(new Request(request, { headers }));
     }
+    if (PYPI_HOSTS.includes(url.hostname)) return fetch(request);
     return new Response(`${url.hostname} is not reachable from this sandbox\n`, { status: 403 });
   }
 }

@@ -1,0 +1,774 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "workflows/schemas/envelope.schema.json",
+  "title": "EO ⇄ IO wire envelope, v1",
+  "description": "Machine-checkable form of the message-type tables in workflows/orchestrator-external/protocol.md. Unknown envelope fields are ignored per protocol ( validators ignore additional properties); required payload fields per type are enforced. The schema and the protocol tables must change together.",
+  "type": "object",
+  "required": [
+    "v",
+    "id",
+    "ref",
+    "ts",
+    "from",
+    "to",
+    "type",
+    "payload"
+  ],
+  "properties": {
+    "v": {
+      "const": 1,
+      "description": "version mismatch is NAK'd, not validated further"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^msg-"
+    },
+    "ref": {
+      "type": "string",
+      "minLength": 1,
+      "description": "message or task id this frame answers; unresolved ref is NAK'd as late/unknown"
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "from": {
+      "enum": [
+        "external",
+        "internal"
+      ]
+    },
+    "to": {
+      "enum": [
+        "external",
+        "internal"
+      ]
+    },
+    "type": {
+      "enum": [
+        "TASK",
+        "TASK_REVISION",
+        "CLARIFICATION_ANSWER",
+        "APPROVAL_RESPONSE",
+        "INTERRUPT",
+        "ARTIFACT_RESPONSE",
+        "STATUS",
+        "CLARIFICATION",
+        "APPROVAL_REQUEST",
+        "COMPLETION",
+        "FAILURE",
+        "ARTIFACT_TRANSFER",
+        "ARTIFACT_REQUEST",
+        "NAK"
+      ]
+    },
+    "task_ref": {
+      "type": "string",
+      "description": "present on task-scoped messages"
+    },
+    "trace": {
+      "type": "object",
+      "description": "optional v1-compatible trace context",
+      "required": [
+        "trace_id",
+        "span_id",
+        "parent_span_id"
+      ],
+      "properties": {
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "span_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent_span_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "payload": true
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "TASK"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "goal",
+              "constraints",
+              "sandbox",
+              "budget",
+              "session"
+            ],
+            "properties": {
+              "goal": {
+                "type": "string"
+              },
+              "constraints": {
+                "type": "object",
+                "properties": {
+                  "files": {},
+                  "deps": {},
+                  "approvals_pregranted": {}
+                }
+              },
+              "sandbox": {
+                "type": "object",
+                "required": [
+                  "tools",
+                  "budgets",
+                  "network"
+                ],
+                "properties": {
+                  "tools": {
+                    "type": "array"
+                  },
+                  "budgets": {},
+                  "network": {
+                    "enum": [
+                      "none",
+                      "proxy"
+                    ]
+                  }
+                }
+              },
+              "budget": {
+                "type": "object",
+                "required": [
+                  "wall_clock_task",
+                  "tokens_task"
+                ],
+                "properties": {
+                  "wall_clock_task": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "tokens_task": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "session": {
+                "type": "object",
+                "required": [
+                  "ledgerRef",
+                  "artifactsDir"
+                ],
+                "properties": {
+                  "ledgerRef": {
+                    "type": "string"
+                  },
+                  "artifactsDir": {
+                    "type": "string"
+                  },
+                  "specRef": {
+                    "type": "string",
+                    "description": "optional: EO-side specification artifact (SPEC-<task_ref>.md) delivered as a task input artifact; presence means spec-approved at a recorded SHA (EO design §Idea-to-specification intake)"
+                  }
+                }
+              },
+              "route": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "optional: dispatch route chosen by the developer at the EO's route-evaluation fork (EO design §Route evaluation); absent = single",
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "single",
+                      "parallel"
+                    ]
+                  },
+                  "sandboxes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "track"
+                      ],
+                      "properties": {
+                        "track": {
+                          "type": "string"
+                        },
+                        "modules": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "specRef": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "TASK_REVISION"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "delta",
+              "reason"
+            ],
+            "properties": {
+              "delta": {},
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "CLARIFICATION_ANSWER"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "answers"
+            ],
+            "properties": {
+              "answers": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "APPROVAL_RESPONSE"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "approved",
+              "scope",
+              "expires"
+            ],
+            "properties": {
+              "approved": {
+                "type": "boolean"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "expires": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "INTERRUPT"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "reason"
+            ],
+            "properties": {
+              "reason": {
+                "enum": [
+                  "user",
+                  "timeout",
+                  "teardown"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "ARTIFACT_RESPONSE"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "blobRef",
+              "sanitized",
+              "notes"
+            ],
+            "properties": {
+              "blobRef": {
+                "type": "string"
+              },
+              "sanitized": {
+                "type": "boolean"
+              },
+              "notes": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "STATUS"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "stage",
+              "specialists",
+              "budgets",
+              "lastEvent"
+            ],
+            "properties": {
+              "stage": {
+                "type": "string"
+              },
+              "specialists": {
+                "type": "object",
+                "description": "per-specialist state: scout/plan/build/test",
+                "propertyNames": {
+                  "enum": [
+                    "scout",
+                    "plan",
+                    "build",
+                    "test"
+                  ]
+                }
+              },
+              "budgets": {
+                "type": "object",
+                "required": [
+                  "task"
+                ],
+                "properties": {
+                  "task": {
+                    "type": "object",
+                    "required": [
+                      "used",
+                      "planned"
+                    ]
+                  }
+                }
+              },
+              "lastEvent": {
+                "type": "string"
+              },
+              "budget_pressure": {
+                "type": "boolean",
+                "description": "present at the IO's discretion; required on the >=80% status (protocol §Budget semantics)"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "CLARIFICATION"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "questions",
+              "resumePoint"
+            ],
+            "properties": {
+              "questions": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "text",
+                    "defaultAssumption"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "defaultAssumption": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "resumePoint": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "APPROVAL_REQUEST"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "action",
+              "blastRadius",
+              "whyRisky",
+              "alternatives"
+            ],
+            "properties": {
+              "action": {
+                "type": "string"
+              },
+              "blastRadius": {
+                "type": "string"
+              },
+              "whyRisky": {
+                "type": "string"
+              },
+              "alternatives": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "COMPLETION"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "summary",
+              "verdictAttenuations",
+              "artifactRefs",
+              "ledgerRef"
+            ],
+            "properties": {
+              "summary": {
+                "type": "string"
+              },
+              "verdictAttenuations": {
+                "type": "array"
+              },
+              "artifactRefs": {
+                "type": "array"
+              },
+              "ledgerRef": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "FAILURE"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "failingStep",
+              "classification",
+              "evidence",
+              "attempts",
+              "recoveryOptions"
+            ],
+            "properties": {
+              "failingStep": {
+                "type": "string"
+              },
+              "classification": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "array"
+              },
+              "attempts": {
+                "type": "array"
+              },
+              "recoveryOptions": {
+                "type": "array"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "ARTIFACT_TRANSFER"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "artifactRef",
+              "kind",
+              "sha256"
+            ],
+            "properties": {
+              "artifactRef": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "file",
+                  "log",
+                  "patch"
+                ]
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "quarantine": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "ARTIFACT_REQUEST"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "whyEgressNeeded",
+              "expectedSize"
+            ],
+            "oneOf": [
+              {
+                "required": [
+                  "url"
+                ]
+              },
+              {
+                "required": [
+                  "descriptor"
+                ]
+              }
+            ],
+            "properties": {
+              "url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "descriptor": {
+                "type": "string"
+              },
+              "whyEgressNeeded": {
+                "type": "string"
+              },
+              "expectedSize": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "NAK"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "error",
+              "receivedType"
+            ],
+            "properties": {
+              "error": {
+                "type": "string"
+              },
+              "receivedType": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "not": {
+              "const": "NAK"
+            }
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "required": [
+          "task_ref"
+        ],
+        "description": "every current type except NAK is task-scoped (protocol envelope Rules)"
+      }
+    }
+  ]
+}

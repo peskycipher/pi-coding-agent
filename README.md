@@ -23,12 +23,14 @@ Ported from `cloudflare/sandbox-sdk` `examples/coding-agents/pi`, with two chang
 ## Network access
 
 The container has no internet access. An `Outbound` entrypoint in the Worker receives every HTTP
-and HTTPS request from it and allows exactly three hosts:
+and HTTPS request from it and allows exactly these hosts:
 
 - `ollama.com` — the Worker adds `OLLAMA_API_KEY` (a Worker secret), so the container never holds
   the account key.
 - `api.typesafe.ai` — the Worker adds `TYPESAFE_API_KEY`, for TypeSafe's Jev classifier.
 - `github.com` — the Worker adds `GITHUB_TOKEN` when it is set.
+- `pypi.org` and `files.pythonhosted.org` — public packages, no credentials, so pip/pipx/uv can
+  install tools.
 
 Every other host gets `403`.
 
@@ -59,11 +61,13 @@ return result.answers;
 npm install
 npx wrangler secret put OLLAMA_API_KEY     # the Ollama Cloud account key
 npx wrangler secret put TYPESAFE_API_KEY   # the TypeSafe account key
+npm run test                               # pure-logic unit tests (node --test, no Container)
 npm run deploy
 ```
 
 `npm run deploy` regenerates `worker-configuration.d.ts`, then builds the container image and
-deploys. The image is `node:24-bookworm-slim` plus Pi and seven packages:
+deploys. The image is `node:26-bookworm-slim` plus Python 3, pip/pipx, and uv, and it ships Pi
+and seven packages:
 
 - `pi-ollama-cloud-link` — registers the `ollama-cloud` provider, discovers its model catalog at
   runtime. The image ships an `ollama_cloud.json` that turns off `specCheck` (its probe crashes the
@@ -77,9 +81,13 @@ deploys. The image is `node:24-bookworm-slim` plus Pi and seven packages:
   quality/correctness/security/… scopes).
 - `pi-jev-compaction` — JEV-driven compaction. Needs `TYPESAFE_API_KEY` (already wired) and
   otherwise runs at its defaults.
-- `pi-follow-through` — Jev checks whether useful work remains after a run. Its README states it
-  skips JSON and print modes, so in this harness it is installed but inert; it activates only if
-  the invocation ever moves to RPC mode.
+- `pi-follow-through` — Jev checks whether useful work remains after a run and, if so, sends the
+  extension's continuation message in the same task. Upstream it hard-skips JSON mode (it assumes
+  an interactive session), so the image pins it at 0.1.4 and patches its mode gate to accept JSON
+  mode; the Dockerfile's `shortcut:` comment explains why. A live probe confirmed the Jev
+  evaluation runs in this harness; Jev decides by its own gates whether a nudge fires, so most
+  completed tasks see no change. Its `followThrough` settings block (threshold, includeToolData)
+  applies unchanged.
 - `@mjasnikovs/pi-task` — the four `pi-worker*` tools. `pi-worker` spawns an isolated read-only
   child Pi; children run `--no-extensions`, so the image bakes a pi-task
   `extensionWhitelist` naming the ollama-cloud provider extension and a
@@ -109,8 +117,12 @@ curl "https://code.proxyagent.rent/sandboxes/agent-1/task"
 curl "https://code.proxyagent.rent/sandboxes/agent-1/diff"
 ```
 
-`202` means the task started; a second task while one runs returns `409`. The prompt is one argument
-of the agent's command, so a prompt of 128 KiB or more returns `413`.
+`202` means the task started; a second task while one runs returns `409`, as does a diff read
+while a task runs, or a task without a prior clone. The prompt is one argument of the agent's
+command, so a prompt of 128 KiB or more returns `413`.
+
+A task that still runs two hours after it started is killed at the next poll and reads `lost` —
+the follow-through extension could otherwise chain continuation runs indefinitely.
 
 The agent runs without permission prompts. The container is the sandbox: it can run any command in
-it, but it reaches only the two hosts above.
+it, but it reaches only the hosts above.

@@ -1,0 +1,72 @@
+# Suite alert definitions — page and ticket alerts (workflows/observability/plan.md §Alerting)
+#
+# Changes to these definitions land as PRs on spec/<area> branches with the drift check
+# green (README §Version control conventions); a new PAGE alert additionally requires
+# the incident evidence the existing four failed to catch.
+# Alert rules as data: the metrics/log emitter evaluates these; each rule links to its
+# three-line runbook section (anchored by alert name) in runbooks.md — a sibling file,
+# so the reference always resolves. Page rules are a closed set: adding a fifth page
+# alert requires an incident the existing four failed to catch (plan §Trade-offs, risk 6).
+# Ticket alerts may grow without re-litigating that rule; they route to digests.
+
+page_alerts:
+  - name: task_failure_unrecoverable
+    signal: ledger FAILURE event with empty recoveryOptions
+    condition: count >= 1 in 5m window
+    severity: page
+    runbook: runbooks.md#task_failure_unrecoverable
+
+  - name: pipeline_stalled
+    signal: agent_heartbeat_age_seconds{agent="internal"} with outstanding dispatches
+    condition: > 300s while dispatch_count > 0
+    severity: page
+    runbook: runbooks.md#pipeline_stalled
+
+  - name: completion_gate_rejected
+    signal: EO NAK of COMPLETION (incomplete completion report)
+    condition: >= 2 for the same task_ref
+    severity: page
+    runbook: runbooks.md#completion_gate_rejected
+
+  - name: nak_loop
+    signal: agent_nak_total{side} for one session
+    condition: > 2 per session
+    severity: page
+    runbook: runbooks.md#nak_loop
+
+ticket_alerts:
+  - name: contract_violation_rate
+    condition: agent_contract_violations_total / dispatches > 20% over 1h
+    runbook: runbooks.md#contract_violation_rate
+
+  - name: retry_rate_anomaly
+    condition: > 2x trailing 7-day baseline per agent
+    runbook: runbooks.md#retry_rate_anomaly
+
+  - name: token_burn_anomaly
+    condition: p95 tokens/turn > 3x 30-day baseline per agent
+    runbook: runbooks.md#token_burn_anomaly
+
+  - name: approval_wait_sla
+    condition: approval_wait_seconds p95 > 30min
+    runbook: runbooks.md#approval_wait_sla
+
+  - name: first_attempt_pass_drop
+    condition: test agent first-attempt pass rate drop > 20pts per run
+    runbook: runbooks.md#first_attempt_pass_drop
+
+  - name: adversarial_rejection_rate
+    condition: > 50% of adversarial gate outcomes are REJECTED across tasks in 24h
+    runbook: runbooks.md#adversarial_rejection_rate
+
+  - name: task_budget_pressure
+    condition: task-level tokens or wall-clock >= 80% of the TASK budget
+    runbook: runbooks.md#task_budget_pressure
+
+channels:
+  page: local push notification (developer machine; no pager rotation exists)
+  ticket: daily digest
+
+sampling:
+  success_dispatches: 0.10   # raise to 1.0 while debugging
+  failures_and_naks: 1.0

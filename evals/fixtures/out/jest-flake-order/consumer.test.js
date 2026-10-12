@@ -1,0 +1,2 @@
+const fs = require("fs");
+test("test B fails only after A ran (order-dependent)", () => { if (fs.existsSync("__state.sentinel")) throw new Error("shared-state order dependency: sentinel present"); expect(1).toBe(1); });

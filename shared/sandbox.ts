@@ -1,7 +1,7 @@
 import { Files, SandboxFileError } from "@cloudflare/sandbox";
 import { DurableObject } from "cloudflare:workers";
-import type { z } from "zod";
-
+import { readLines } from "./jsonl";
+import type { PiEvent } from "./pi-events";
 import type { Outbound } from "./outbound";
 
 const REPOSITORY_DIRECTORY = "/workspace/repo";
@@ -13,6 +13,10 @@ const PID_PATH = `${TASK_DIRECTORY}/pid`;
 const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1_000;
 // Requests keep a Container awake; a running process does not. Check the task well within the timeout.
 const TASK_CHECK_INTERVAL_MS = 60 * 1_000;
+// A task must not run forever; the follow-through nudge can keep an agent going as long as
+// Jev judges the work incomplete. Past this the poll alarm kills the agent (the task reads as
+// "lost") instead of letting runs chain indefinitely.
+const TASK_MAX_MS = 2 * 60 * 60 * 1_000;
 const TASK_KEY = "task";
 const CA_PATH = "/etc/cloudflare/certs/cloudflare-containers-ca.crt";
 
@@ -50,6 +54,14 @@ export type TaskOutcome =
   | { state: "failed"; error: string };
 
 export type TaskStatus = { state: "none" } | { state: "running" } | { state: "lost" } | TaskOutcome;
+
+// Mapped to HTTP statuses by the handler.
+export class TaskRunningError extends Error {
+  constructor() { super("A task is already running"); }
+}
+export class SandboxNotClonedError extends Error {
+  constructor() { super("Clone a repository into the sandbox first"); }
+}
 
 export interface CommandResult {
   exitCode: number;
@@ -92,6 +104,8 @@ export abstract class CodingAgentSandbox extends DurableObject<CodingAgentEnv> {
     ref: string | undefined,
   ): Promise<CommandResult> {
     await this.#ensureExecution(sandboxName);
+    // A second clone must not meet an existing directory: git clone refuses non-empty targets.
+    await this.#run(["/bin/sh", "-c", `rm -rf ${REPOSITORY_DIRECTORY}`], "/workspace", TRUST_ENV);
     const branch = ref === undefined ? [] : ["--branch", ref];
     const clone = await this.#run(
       ["git", "clone", "--depth", "1", ...branch, "--", repository, REPOSITORY_DIRECTORY],
@@ -114,6 +128,10 @@ export abstract class CodingAgentSandbox extends DurableObject<CodingAgentEnv> {
     // Block other requests so two starts cannot both see an idle task.
     return this.ctx.blockConcurrencyWhile(async () => {
       await this.#ensureExecution(sandboxName);
+      const repoDir = await this.#run(
+        ["/bin/sh", "-c", `test -d ${REPOSITORY_DIRECTORY}`], "/", {},
+      );
+      if (repoDir.exitCode !== 0) throw new SandboxNotClonedError();
       if ((await this.#taskStatus()).state === "running") return "busy";
       await this.#files.remove(TASK_DIRECTORY, { recursive: true, force: true });
       await this.#files.mkdir(TASK_DIRECTORY);
@@ -125,16 +143,27 @@ export abstract class CodingAgentSandbox extends DurableObject<CodingAgentEnv> {
         stderr: "ignore",
       });
       await this.#files.writeFile(PID_PATH, String(task.pid));
-      this.ctx.storage.kv.put(TASK_KEY, "started");
+      this.ctx.storage.kv.put(TASK_KEY, Date.now());
       await this.ctx.storage.setAlarm(Date.now() + TASK_CHECK_INTERVAL_MS);
       return "started";
     });
   }
 
   // Each check is a request to the Container, so it stays awake while the agent runs.
+  // Past the task cap the alarm kills the agent; the next check reads it as "lost".
   async alarm(): Promise<void> {
     if (!this.#container.running) return;
     if ((await this.#taskStatus()).state === "running") {
+      const startedAt = await this.ctx.storage.kv.get<number>(TASK_KEY);
+      if (startedAt !== undefined && Date.now() - startedAt > TASK_MAX_MS) {
+        const pid = await this.#readOptionalText(PID_PATH);
+        if (pid !== undefined) {
+          await this.#run(
+            ["/bin/sh", "-c", 'kill -TERM "$1"', "cap-kill", pid.trim()], "/", {},
+          );
+          return;
+        }
+      }
       await this.ctx.storage.setAlarm(Date.now() + TASK_CHECK_INTERVAL_MS);
       return;
     }
@@ -157,6 +186,8 @@ export abstract class CodingAgentSandbox extends DurableObject<CodingAgentEnv> {
 
   async readDiff(sandboxName: string): Promise<CommandResult> {
     await this.#ensureExecution(sandboxName);
+    // A diff mutates the index; racing a running agent's git commands could corrupt both.
+    if ((await this.#taskStatus()).state === "running") throw new TaskRunningError();
     // Intent-to-add makes new files show up in the diff.
     return this.#run(
       ["/bin/sh", "-c", "git add --intent-to-add . && git diff"],
@@ -172,7 +203,7 @@ export abstract class CodingAgentSandbox extends DurableObject<CodingAgentEnv> {
   }
 
   // The agent writes one JSON event per line. Yields the events that match the schema.
-  protected async *events<Event>(schema: z.ZodType<Event>): AsyncGenerator<Event> {
+  protected async *events<Event>(schema: { safeParse(value: unknown): { success: true; data: Event } | { success: false } }): AsyncGenerator<Event> {
     for await (const line of readLines((await this.#files.readFile(EVENTS_PATH)).body)) {
       let event: unknown;
       try {
@@ -247,20 +278,6 @@ export abstract class CodingAgentSandbox extends DurableObject<CodingAgentEnv> {
       stderr: decoder.decode(output.stderr),
     };
   }
-}
-
-async function* readLines(body: ReadableStream<Uint8Array> | null): AsyncGenerator<string> {
-  if (body === null) return;
-  const decoder = new TextDecoder();
-  let buffered = "";
-  for await (const chunk of body) {
-    buffered += decoder.decode(chunk, { stream: true });
-    const lines = buffered.split("\n");
-    buffered = lines.pop() ?? "";
-    yield* lines;
-  }
-  buffered += decoder.decode();
-  if (buffered !== "") yield buffered;
 }
 
 function requireContainer(ctx: DurableObjectState): Container {
