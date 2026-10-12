@@ -1,0 +1,19 @@
+{
+  "doc_drifts": [
+    {
+      "path": "docs/legacy.md",
+      "section": "Legacy API",
+      "claim": "openLegacy(path)",
+      "risk": "wrong-instruction"
+    }
+  ],
+  "quarantine_expected": true,
+  "claims": [
+    {
+      "path": "docs/legacy.md",
+      "claim": "openLegacy(path)",
+      "anchor": "src/legacy.js:1",
+      "class": "endpoint"
+    }
+  ]
+}

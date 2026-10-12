@@ -1,0 +1,25 @@
+{
+  "doc_drifts": [
+    {
+      "path": "docs/reference.md",
+      "section": "Reference",
+      "claim": "returns false",
+      "risk": "wrong-instruction"
+    }
+  ],
+  "quarantine_expected": true,
+  "claims": [
+    {
+      "path": "docs/guide.md",
+      "claim": "featureEnabled() returns true",
+      "anchor": "src/feature.js:1",
+      "class": "default"
+    },
+    {
+      "path": "docs/reference.md",
+      "claim": "featureEnabled() returns false",
+      "anchor": "src/feature.js:1",
+      "class": "default"
+    }
+  ]
+}

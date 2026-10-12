@@ -1,0 +1,19 @@
+{
+  "doc_drifts": [
+    {
+      "path": "docs/optional.md",
+      "section": "Optional flags",
+      "claim": "--legacy",
+      "risk": "outdated-reference"
+    }
+  ],
+  "quarantine_expected": true,
+  "claims": [
+    {
+      "path": "docs/optional.md",
+      "claim": "--legacy",
+      "anchor": "src/optional.js:1",
+      "class": "flag"
+    }
+  ]
+}

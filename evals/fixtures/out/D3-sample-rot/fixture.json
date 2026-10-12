@@ -1,0 +1,19 @@
+{
+  "doc_drifts": [
+    {
+      "path": "docs/setup.md",
+      "section": "Usage",
+      "claim": "createClient(url)",
+      "risk": "outdated-reference"
+    }
+  ],
+  "coverage_partial": true,
+  "claims": [
+    {
+      "path": "docs/setup.md",
+      "claim": "createClient(url)",
+      "anchor": "src/api.js:1",
+      "class": "setup-step"
+    }
+  ]
+}

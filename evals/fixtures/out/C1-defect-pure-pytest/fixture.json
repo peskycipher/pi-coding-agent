@@ -1,0 +1,53 @@
+{
+  "tests": [
+    {
+      "testId": "tests/test_math.py::test_adds",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/test_math.py::test_subtracts",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/test_math.py::test_multiplies",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/test_math.py::test_divides",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/test_math.py::test_modulo",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/test_math.py::test_power",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/test_math.py::test_negates",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/test_math.py::test_absolute",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/test_math.py::test_minimum",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/test_math.py::test_maximum",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/test_math.py::test_adds_negative_numbers",
+      "expectedClass": "defect"
+    },
+    {
+      "testId": "tests/test_math.py::test_handles_zero_division",
+      "expectedClass": "defect"
+    }
+  ],
+  "first_attempt_pass_rate": 0.8333333333333334
+}

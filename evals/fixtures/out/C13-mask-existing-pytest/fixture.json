@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "testId": "tests/test_race.py::test_settles_eventually",
+      "expectedClass": "pass"
+    }
+  ],
+  "masking_history": true,
+  "requires_git_info": true
+}

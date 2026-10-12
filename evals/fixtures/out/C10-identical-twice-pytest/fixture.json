@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "testId": "tests/test_flaky.py::test_occasionally_fails",
+      "expectedClass": "defect"
+    }
+  ],
+  "requires_git_info": true,
+  "identical_twice": "tests/test_flaky.py::test_occasionally_fails"
+}

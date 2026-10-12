@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "testId": "tests/flaky.test.js::occasionally fails",
+      "expectedClass": "defect"
+    }
+  ],
+  "requires_git_info": true,
+  "identical_twice": "tests/flaky.test.js::occasionally fails"
+}

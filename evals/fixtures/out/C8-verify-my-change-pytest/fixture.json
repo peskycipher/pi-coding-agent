@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "testId": "tests/test_app.py::test_answer_is_42",
+      "expectedClass": "pass"
+    }
+  ],
+  "coverage_partial": true,
+  "requires_selection_rule": true
+}

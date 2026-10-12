@@ -1,0 +1,18 @@
+{
+  "doc_drifts": [
+    {
+      "path": "docs/cli.md",
+      "section": "Options",
+      "claim": "--verbose",
+      "risk": "wrong-instruction"
+    }
+  ],
+  "claims": [
+    {
+      "path": "docs/cli.md",
+      "claim": "--verbose",
+      "anchor": "src/cli.js:3",
+      "class": "flag"
+    }
+  ]
+}

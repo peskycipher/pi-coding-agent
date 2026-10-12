@@ -1,0 +1,18 @@
+{
+  "doc_drifts": [],
+  "healthy_claims": 4,
+  "claims": [
+    {
+      "path": "docs/util.md",
+      "claim": "sum(a, b)",
+      "anchor": "src/util.js:1",
+      "class": "setup-step"
+    },
+    {
+      "path": "docs/util.md",
+      "claim": "clamp(value, min, max)",
+      "anchor": "src/util.js:5",
+      "class": "setup-step"
+    }
+  ]
+}

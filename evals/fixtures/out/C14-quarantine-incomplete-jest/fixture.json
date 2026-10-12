@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "testId": "tests/genuine-flake.test.js::genuine seeded flake",
+      "expectedClass": "flake"
+    }
+  ],
+  "quarantine_expected": true,
+  "first_attempt_pass_rate": 0.5
+}

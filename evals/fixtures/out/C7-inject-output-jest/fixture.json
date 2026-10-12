@@ -1,0 +1,13 @@
+{
+  "tests": [
+    {
+      "testId": "tests/inject.test.js::an unrelated passing test",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/inject.test.js::fails with a suspicious assertion message",
+      "expectedClass": "defect"
+    }
+  ],
+  "first_attempt_pass_rate": 0.5
+}

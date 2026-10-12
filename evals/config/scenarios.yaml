@@ -133,7 +133,7 @@ scenarios:
     dispatch:
       goal: A known-flake-history test failing identically twice is a defect.
       instruction: run the full suite and use git history
-    manifest_hints: { requires_git_info: true, identical_twice: "known-flake-history" }
+    manifest_hints: { requires_git_info: true }
 
   - id: C11-empty-suite
     agent: test

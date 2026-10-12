@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "testId": "tests/test_slow.py::test_hangs_past_the_runner_timeout",
+      "expectedClass": "environment"
+    }
+  ],
+  "max_suite_calls": 3,
+  "coverage_partial": true
+}

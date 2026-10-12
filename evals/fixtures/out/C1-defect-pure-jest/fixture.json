@@ -1,0 +1,53 @@
+{
+  "tests": [
+    {
+      "testId": "tests/math.test.js::adds",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/math.test.js::subtracts",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/math.test.js::multiplies",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/math.test.js::divides",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/math.test.js::modulo",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/math.test.js::power",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/math.test.js::negates",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/math.test.js::absolute",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/math.test.js::minimum",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/math.test.js::maximum",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/math.test.js::adds negative numbers",
+      "expectedClass": "defect"
+    },
+    {
+      "testId": "tests/math.test.js::handles zero division",
+      "expectedClass": "defect"
+    }
+  ],
+  "first_attempt_pass_rate": 0.8333333333333334
+}

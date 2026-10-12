@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "testId": "tests/app.test.js::answer is 42",
+      "expectedClass": "pass"
+    }
+  ],
+  "coverage_partial": true,
+  "requires_selection_rule": true
+}

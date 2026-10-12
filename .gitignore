@@ -5,3 +5,11 @@ node_modules/
 graft/
 .pi/
 
+
+# Local eval virtualenv (pytest runner for fixture calibration).
+.venv-eval/
+
+# Python bytecode from the pytest fixtures (the committed flake fixture keeps its tracked
+# pyc; new ones are transient calibration artifacts and version-specific).
+__pycache__/
+*.pyc

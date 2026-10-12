@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "testId": "tests/retry.test.js::fails first attempt, passes on retry",
+      "expectedClass": "flake"
+    }
+  ],
+  "failing_first_attempt": true,
+  "first_attempt_pass_rate": 0.5
+}

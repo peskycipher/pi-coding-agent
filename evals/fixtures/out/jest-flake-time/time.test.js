@@ -1,0 +1,1 @@
+test("fails under off-hours clock skew only", () => { const now = new Date(process.env.FAKE_NOW || new Date().toISOString()); const h = now.getHours(); if (h < 5) throw new Error("time-dependent behavior (FAKE_NOW=" + process.env.FAKE_NOW + ")"); expect(1).toBe(1); });

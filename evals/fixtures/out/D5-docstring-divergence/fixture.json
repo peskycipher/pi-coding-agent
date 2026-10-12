@@ -1,0 +1,18 @@
+{
+  "doc_drifts": [
+    {
+      "path": "docs/widgets.md",
+      "section": "Widgets",
+      "claim": "never logs",
+      "risk": "wrong-instruction"
+    }
+  ],
+  "claims": [
+    {
+      "path": "docs/widgets.md",
+      "claim": "renderWidgets() never logs",
+      "anchor": "src/widgets.js:1",
+      "class": "default"
+    }
+  ]
+}

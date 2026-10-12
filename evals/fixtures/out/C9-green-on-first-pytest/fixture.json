@@ -1,0 +1,18 @@
+{
+  "tests": [
+    {
+      "testId": "tests/test_green.py::test_alpha",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/test_green.py::test_beta",
+      "expectedClass": "pass"
+    },
+    {
+      "testId": "tests/test_green.py::test_gamma",
+      "expectedClass": "pass"
+    }
+  ],
+  "coverage_partial": false,
+  "first_attempt_pass_rate": 1
+}

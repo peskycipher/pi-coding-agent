@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "testId": "tests/test_genuine_flake.py::test_genuine_seeded_flake",
+      "expectedClass": "flake"
+    }
+  ],
+  "quarantine_expected": true,
+  "first_attempt_pass_rate": 0.5
+}

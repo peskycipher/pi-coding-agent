@@ -1,0 +1,1 @@
+{"revisions":[{"seq":1,"summary":"fix: prevent crash when the input list is empty"},{"seq":2,"summary":"add: expose the --format flag"}]}

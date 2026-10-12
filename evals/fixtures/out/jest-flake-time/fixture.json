@@ -1,0 +1,9 @@
+{
+  "tests": [
+    {
+      "testId": "time.test.js::fails under off-hours clock skew only",
+      "expectedClass": "flake"
+    }
+  ],
+  "first_attempt_pass_rate": 0.5
+}

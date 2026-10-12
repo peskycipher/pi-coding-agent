@@ -1,0 +1,9 @@
+{
+  "tests": [
+    {
+      "testId": "test_time.py::test_fails_under_off_hours_clock_skew_only",
+      "expectedClass": "flake"
+    }
+  ],
+  "first_attempt_pass_rate": 0.5
+}

@@ -63,7 +63,8 @@ test("fixture presence reflects the committed checkout honestly", () => {
 	assert.deepEqual(availableRunners(c3).sort(), ["jest", "pytest"]);
 	assert.ok(scenarioPresent(c2));
 	assert.deepEqual(availableRunners(c2), ["jest"]); // pytest variant is not generated yet
-	assert.ok(!scenarioPresent(c1));
+	assert.ok(scenarioPresent(c1));
+	assert.deepEqual(availableRunners(c1).sort(), ["jest", "pytest"]);
 });
 
 test("selectScenarios modes", () => {

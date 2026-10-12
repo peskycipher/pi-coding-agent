@@ -6,17 +6,19 @@ no ledger, no envelopes at run time — one DISPATCH in, one RESULT out, with ev
 traced.
 
 Status: **harness, scorer, rubric, judge (+ calibration), real candidate adapters, config,
-and baseline are implemented and tested.** The fixture *generator* and the three committed
-flake fixtures already existed and were **not** regenerated or modified. The remaining gap is
-fixture coverage: most of the C/D catalog has no committed fixture yet, so the runner skips
-those scenarios and reports them. See [What is built vs. remaining](#what-is-built-vs-remaining).
+baseline, and the C/D fixture catalog are implemented and tested.** `fixtures/generate.mjs`
+now emits deterministic fixture repos + `fixture.json` ground-truth manifests for the planned
+catalog (C1, C4–C14, D1–D10, including the C7/D9 paired controls) alongside the calibrated
+flake fixtures; the three committed flake fixtures (`jest-flake-order`, `pytest-flake-order`,
+`jest-flake-seed`) are **preserved untouched**. The remaining gaps are the C2 pytest variant
+and model-matrix IDs. See [What is built vs. remaining](#what-is-built-vs-remaining).
 
 ## Layout
 
 | Path | Purpose |
 |---|---|
-| `fixtures/generate.mjs` | Seeded fixture generator + calibration (pre-existing). |
-| `fixtures/out/**` | Committed fixture repos (pre-existing, reused as-is): `jest-flake-order`, `pytest-flake-order`, `jest-flake-seed`. |
+| `fixtures/generate.mjs` | Seeded flake calibration + deterministic catalog generator (emits `C*-*`/`D*-*` repos + `fixture.json`). |
+| `fixtures/out/**` | Committed fixture repos: the preserved flakes `jest-flake-order`, `pytest-flake-order`, `jest-flake-seed`, plus the generated catalog (`C1`, `C4–C14`, `D1–D10`, with C7/D9 controls) and `fixture.json` manifests. |
 | `harness/trace.mjs` | Tool-trace recorder; one schema-validated JSON line per call. |
 | `harness/tool-roles.mjs` | The seven test roles + docs roles: `run-suite`, `run-test`, `read-log`, `workspace-read`, `env-check`, `git-info`, `test-edit`, `docs-edit`, `notify`. Path-jailed, budgeted, traced. |
 | `harness/dispatcher.mjs` | Dispatcher shim: builds/validates DISPATCH, invokes the candidate, validates RESULT, captures `notify`, optional `retry: fresh` re-dispatch. |
@@ -63,6 +65,13 @@ the machinery; it is not an evaluation result. `--agent <file>` loads an explici
 Exit code: `core` requires 100% scenario pass, `full` ≥ 0.85, and any S-violation or
 baseline regression fails regardless.
 
+`npm run eval:calibrate` runs `fixtures/generate.mjs`: it calibrates the flake fixtures
+(K=20 per polarity and a seed sweep — needs the pytest runner) and re-emits the
+deterministic catalog verbatim. The calibration report lands in
+`evals/results/fixtures-calibration.json` (gitignored) and the three preserved committed
+fixtures are never rewritten. The pytest runner defaults to `.venv-eval/bin/python`
+(override with `PYTEST`); `.venv-eval/` is gitignored.
+
 ## Harness contracts
 
 - **Tool trace** (`schemas/tool-trace.schema.json`): `ts`, `scenario`, `agent`, `role`,
@@ -78,6 +87,9 @@ baseline regression fails regardless.
   `requires_git_info`, `empty_suite`, `masking_history`, `identical_twice`,
   `quarantine_expected`, `max_suite_calls`, `max_diagnostic_reads`, `allowed_edit_patterns`,
   `doc_drifts`, `healthy_claims`, `release_expects`, `ledger_facts`, `allows_doc_masking`.
+  Catalog fixtures ship one; the three preserved flakes are scored from `manifest_hints`
+  only. S4 reads quarantine records from the real agent shapes: the test agent's `notify`
+  report, and the docs agent's `result.verdict.stale_sections`.
 
 ## Scoring
 
@@ -100,13 +112,16 @@ baseline regression fails regardless.
 Built: the full §6 runtime — tool roles, trace recorder, dispatcher shim, mechanical
 scorer, static rubrics, judge harness (+ calibration defaults), real candidate adapters,
 config catalog, baseline, runner scripts, scheduler guide (`CI.md`), and tests
-(`tests/eval-*.test.ts`).
+(`tests/eval-*.test.ts`, including `tests/eval-fixtures.test.ts` covering the generated
+   catalog).
 
 Remaining:
-1. **Fixtures** — only the three pre-existing flake fixtures are committed. C1, C4–C14 and
-   D1–D10 need the generator run to emit their repos + `fixture.json` manifests (spec §3
-   / §3.1). `evals/config/scenarios.yaml` already declares them and the runner reports them
-   as skipped. *(Do not regenerate in place without reviewing the committed three.)*
+1. **Fixtures** — the C1–C14 + D1–D10 repos and their `fixture.json` manifests are now
+   generated and committed; the three flake fixtures are preserved. The one declared fixture
+   still absent is C2's pytest variant (`C2-defect-flake-mix-pytest`); the runner reports it
+   as skipped and `tests/eval-fixtures.test.ts` documents the gap. *(Re-run `npm run
+   eval:calibrate` after editing `fixtures/generate.mjs`; it is idempotent and never rewrites
+   the preserved three.)*
 2. **Model matrix IDs / judge model** — `config/models.yaml` keeps `owner-to-fill-*`
    placeholders with `TODO(spec §8 Q1/Q2)` notes; the owner decision is pending, so no
    model name is invented. The judge calibration defaults (thresholds + rotation) are in
@@ -115,7 +130,10 @@ Remaining:
 3. **Docs `run-check` binding** — the candidate adapter maps it, but `ToolRuntime` has no
    `run-check`/`docs:check` implementation yet (spec §8 Q9); the D-scenarios block on fixture
    generation first, so this is only reachable once those land.
-4. **Quarantine/report field extraction** — S4 currently reads `quarantine_proposals` from
-   `notify` payloads or the RESULT; confirm the real agent's report shape against this.
+4. **Quarantine/report field extraction** — S4 now matches the real agent RESULT shapes
+   (`shared/shim.ts` `RESULT_CONTRACT`): test-agent quarantine records come from the
+   `notify` RUN REPORT, docs-agent stale-section records from
+   `result.verdict.stale_sections`, each with its own required field set. Re-check once a
+   real candidate run produces records end to end.
 5. **Scheduler** — `eval:full` and `eval:rubric` are ready; `CI.md` documents the jobs and
    secrets, but the GH Actions vs cron choice is still open (spec §8 Q3).

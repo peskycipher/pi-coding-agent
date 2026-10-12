@@ -1,0 +1,7 @@
+{
+  "release_expects": "notes",
+  "ledger_facts": [
+    "fix",
+    "add"
+  ]
+}

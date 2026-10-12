@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "testId": "tests/race.test.js::settles eventually",
+      "expectedClass": "pass"
+    }
+  ],
+  "masking_history": true,
+  "requires_git_info": true
+}

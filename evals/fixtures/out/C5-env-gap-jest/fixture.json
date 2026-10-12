@@ -1,0 +1,11 @@
+{
+  "tests": [
+    {
+      "testId": "tests/integration.test.js::reaches the fixture service",
+      "expectedClass": "environment"
+    }
+  ],
+  "requires_preflight": true,
+  "no_suite_burn": true,
+  "coverage_partial": true
+}

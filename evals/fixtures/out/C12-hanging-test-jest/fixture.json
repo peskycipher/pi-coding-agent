@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "testId": "tests/slow.test.js::hangs past the runner timeout",
+      "expectedClass": "environment"
+    }
+  ],
+  "max_suite_calls": 3,
+  "coverage_partial": true
+}
